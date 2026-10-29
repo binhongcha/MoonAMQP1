@@ -127,7 +127,7 @@ fn Endpoint::receive_frame(
 fn Endpoint::receive_session(
   self : Endpoint,
   perf : Performative,
-  _payload : Bytes,
+  payload : Bytes,
 ) -> Unit raise AmqpError {
   match perf.code {
     0x17 => {
@@ -138,6 +138,7 @@ fn Endpoint::receive_session(
     }
     0x12 => self.receive_attach(perf)
     0x13 => self.receive_flow(perf)
+    0x14 => self.receive_transfer(perf, payload)
     0x16 => self.receive_detach(perf)
     _ => raise Unsupported("session performative not yet handled")
   }
