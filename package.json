@@ -1,0 +1,8 @@
+{
+  "name": "moonamqp1-interop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Development-only independent AMQP 1.0 oracle",
+  "scripts": { "interop": "node scripts/interop.cjs" },
+  "devDependencies": { "rhea": "3.0.5" }
+}
