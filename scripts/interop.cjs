@@ -107,7 +107,8 @@ async function livePeer() {
   child.on('exit', code => { if (code !== 0) console.error(`Moon peer exit ${code}: ${stderr}`); });
   const socket = Duplex.from({ readable:child.stdout, writable:child.stdin });
   const container = rhea.create_container({ id:'rhea-oracle' });
-  let count = 0, delivery;
+  let count = 0, received = 0, delivery, liveConnection;
+  const maybeClose = () => { if (count === 1 && received === 1) liveConnection.close(); };
   const closed = new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(Error(`live peer timed out: ${stderr}`)), 12000);
     container.on('connection_error', context => reject(Error(JSON.stringify(context.connection.error))));
@@ -116,15 +117,26 @@ async function livePeer() {
       if (delivery) return;
       delivery = context.sender.send({ to:'jobs', application_properties:{ id:types.wrap_ulong(Buffer.from('ffffffffffffffff','hex')) }, body:message.data_section(Buffer.alloc(5000,0x31)) });
     });
-    container.on('accepted', context => { count++; assert.equal(context.delivery.id, delivery.id); context.connection.close(); });
+    container.on('accepted', context => { count++; assert.equal(context.delivery.id, delivery.id); maybeClose(); });
+    container.on('message', context => {
+      received++;
+      const data = Buffer.isBuffer(context.message.body) ? context.message.body : context.message.body.content;
+      assert.deepEqual(data, Buffer.alloc(5000,0x42));
+      assert.equal(context.message.application_properties.origin,'moonamqp1');
+      assert.deepEqual(context.message.application_properties.id,Buffer.from('ffffffffffffffff','hex'));
+      context.delivery.accept();
+      maybeClose();
+    });
     container.on('connection_close', () => { clearTimeout(timer); resolve(); });
   });
   try {
-    const connection = container.connect({ reconnect:false, max_frame_size:512, idle_time_out:0,
+    const connection = liveConnection = container.connect({ reconnect:false, max_frame_size:512, idle_time_out:0,
       connect:(_port,_host,_options,connected) => { process.nextTick(connected); return socket; } });
     connection.open_sender({ name:'oracle-task', target:{ address:'jobs' }, snd_settle_mode:2, rcv_settle_mode:0 });
+    connection.open_receiver({ name:'oracle-consume', source:{ address:'events' }, credit_window:4, rcv_settle_mode:0 });
     await closed;
     assert.equal(count,1);
+    assert.equal(received,1);
     const wire = Buffer.concat(sentChunks);
     let pos = 8, transfers = 0;
     while (pos < wire.length) {
@@ -138,7 +150,7 @@ async function livePeer() {
     child.stdin.end();
     const exitCode = await new Promise(resolve => child.on('exit',resolve));
     assert.equal(exitCode,0,stderr);
-    console.log(`Live Rhea client over binary stdio: ${transfers} transfer frames, open/begin/attach/credit/accepted/close passed`);
+    console.log(`Live Rhea client over binary stdio: ${transfers} incoming transfer frames and a 5000-byte outgoing delivery, both accepted; close passed`);
   } finally { child.kill(); }
 }
 (async () => { try { codecs(); await livePeer(); } finally { fs.rmSync(temp,{recursive:true,force:true}); } })().catch(error => { console.error(error); process.exitCode=1; });

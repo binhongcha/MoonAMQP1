@@ -6,6 +6,7 @@ async fn peer() -> Unit {
     window=8192U,
     limits={ ..@amqp.Limits::default(), max_frame_bytes: 512, },
   )
+  let sent : Map[UInt32, Bool] = Map([])
   // Binary stdin/stdout are an ordered host transport, with no SASL or TLS layer.
   while !endpoint.is_closed() {
     let bytes = match @stdio.stdin.read_some(max_len=16384) {
@@ -18,6 +19,18 @@ async fn peer() -> Unit {
       for event in endpoint.events() {
         match event {
           LinkReady(handle, _, false) => endpoint.grant(handle, 32U)
+          Credit(handle, credit) =>
+            if credit > 0U && !sent.contains(handle) {
+              let message = @amqp.Message::data(
+                Bytes::from_array(Array::make(5000, 0x42)),
+                properties=[
+                  ("origin", Text("moonamqp1")),
+                  ("id", ULong(18446744073709551615UL)),
+                ],
+              )
+              ignore(endpoint.send(handle, message, b"moon-delivery"))
+              sent[handle] = true
+            }
           Received(delivery) =>
             if !delivery.settled {
               endpoint.acknowledge(delivery.id, Accepted)
