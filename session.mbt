@@ -55,8 +55,6 @@ pub fn SessionWindow::establish(
   if self.established {
     raise State("session already begun")
   }
-  bounded_window(peer_incoming)
-  bounded_window(peer_outgoing)
   self.next_in = next_incoming
   self.peer_incoming = peer_incoming
   self.peer_outgoing = peer_outgoing
@@ -109,8 +107,6 @@ pub fn SessionWindow::update_peer(
   if !self.established {
     raise State("session not begun")
   }
-  bounded_window(incoming)
-  bounded_window(outgoing)
   if next_outgoing != self.next_in {
     raise Invalid("peer next-outgoing-id mismatch", 0)
   }
@@ -173,4 +169,15 @@ test "session windows count transfer frames and correctly wrap uint32 IDs" {
       _ => true
     },
   )
+}
+
+///|
+test "peer window UINT_MAX is a legal capacity rather than a serial distance" {
+  let session = SessionWindow::new(16U, 16U)
+  session.establish(0U, 4294967295U, 4294967295U)
+  session.sent(frames=2)
+  session.received()
+  session.update_peer(Some(2U), 4294967295U, 1U, 4294967294U)
+  assert_true(session.can_send())
+  assert_eq(session.remaining().2, 4294967295U)
 }
