@@ -2,6 +2,7 @@
 pub(all) enum Outcome {
   Accepted
   Rejected(String, String?)
+  RejectedWithoutError
   Released
   Modified(Bool, Bool)
 } derive(Debug, Eq)
@@ -16,6 +17,7 @@ pub extend Outcome with Eq::{equal, not_equal}
 pub fn Outcome::value(self : Outcome) -> Value {
   match self {
     Accepted => Described(ULong(0x24UL), List([]))
+    RejectedWithoutError => Described(ULong(0x25UL), List([]))
     Rejected(condition, description) =>
       Described(
         ULong(0x25UL),
@@ -89,7 +91,7 @@ pub fn Outcome::from_value(value : Value) -> Outcome raise AmqpError {
         raise Invalid("rejected fields", 0)
       }
       match field_at(items, 0) {
-        Null => Rejected("amqp:internal-error", None)
+        Null => RejectedWithoutError
         error => {
           let fields = described_list(error, 0x1dUL, "amqp:error:list")
           if fields.length() < 1 || fields.length() > 3 {
@@ -116,7 +118,7 @@ pub fn Outcome::from_value(value : Value) -> Outcome raise AmqpError {
         raise Invalid("modified fields", 0)
       }
       if !(field_at(items, 2) is Null) {
-        validate_annotation(field_at(items, 2))
+        raise Unsupported("modified outcome message annotations")
       }
       Modified(
         optional_boolean(field_at(items, 0)),

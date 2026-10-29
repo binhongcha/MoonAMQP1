@@ -166,6 +166,12 @@ fn validate_performative(
       raise Invalid("delivery tag exceeds 32 bytes", 0)
     }
   }
+  if code == 0x16 {
+    validate_error(field_at(fields, 2))
+  }
+  if code == 0x17 || code == 0x18 {
+    validate_error(field_at(fields, 0))
+  }
 }
 
 ///|
