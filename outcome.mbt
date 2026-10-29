@@ -22,7 +22,10 @@ pub fn Outcome::value(self : Outcome) -> Value {
         List([
           Described(
             ULong(0x1dUL),
-            List([Symbol(condition), description.map(Text).unwrap_or(Null)]),
+            List([
+              Symbol(condition),
+              description.map(s => Text(s)).unwrap_or(Null),
+            ]),
           ),
         ]),
       )
