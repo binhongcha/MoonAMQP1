@@ -71,12 +71,6 @@ fn value_code(value : Value) -> Int32 {
 }
 
 ///|
-fn descriptor_code(value : Value) -> UInt64? {
-  match value {
-    ULong(number) => Some(number)
-    _ => None
-  }
-}
 
 ///|
 pub fn Value::as_text(self : Value) -> String raise AmqpError {

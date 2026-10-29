@@ -47,6 +47,9 @@ fn Endpoint::receive_frame(
     None => return
     Some(perf) => perf
   }
+  if self.closing && perf.code != 0x18 {
+    raise State("non-close frame while closing")
+  }
   if perf.code == 0x10 {
     if frame.channel != 0 || self.remote_open {
       raise Invalid("duplicate or nonzero-channel open", 0)
@@ -112,8 +115,11 @@ fn Endpoint::receive_frame(
     if frame.channel != 0 {
       raise Invalid("close channel", 0)
     }
-    self.queue(self.frame(0x18, []))
+    if !self.closing {
+      self.queue(self.frame(0x18, []))
+    }
     self.closed = true
+    self.release_state()
     self.event(RemoteClosed(perf.field(0)))
     return
   }
@@ -139,6 +145,7 @@ fn Endpoint::receive_session(
     0x12 => self.receive_attach(perf)
     0x13 => self.receive_flow(perf)
     0x14 => self.receive_transfer(perf, payload)
+    0x15 => self.receive_disposition(perf)
     0x16 => self.receive_detach(perf)
     _ => raise Unsupported("session performative not yet handled")
   }

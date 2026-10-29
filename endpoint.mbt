@@ -15,6 +15,7 @@ pub enum Event {
   Credit(UInt32, UInt32)
   Received(Delivery)
   Settled(UInt32, Outcome)
+  PeerSettled(UInt32)
   Aborted(UInt32, UInt32)
   Detached(UInt32)
   RemoteClosed(Value)
@@ -43,6 +44,7 @@ pub struct Endpoint {
   priv mut next_delivery : UInt32
   priv mut remote_next_delivery : UInt32?
   priv mut closed : Bool
+  priv mut closing : Bool
   priv mut failed : Bool
 }
 
@@ -80,6 +82,7 @@ pub fn Endpoint::new(
     next_delivery: 0U,
     remote_next_delivery: None,
     closed: false,
+    closing: false,
     failed: false,
   }
 }
@@ -94,6 +97,9 @@ fn Endpoint::active(self : Endpoint) -> Unit raise AmqpError {
 ///|
 fn Endpoint::session_active(self : Endpoint) -> Unit raise AmqpError {
   self.active()
+  if self.closing {
+    raise State("connection close pending")
+  }
   if self.remote_channel is None {
     raise State("session not active")
   }
