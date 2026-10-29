@@ -23,6 +23,11 @@ pub fn Endpoint::send(
   if !settled && self.outgoing.length() >= self.limits.max_pending {
     raise Limit("outgoing unsettled deliveries")
   }
+  for (pending_id, pending_handle) in self.outgoing {
+    if pending_handle == handle && self.outgoing_tags[pending_id] == tag {
+      raise State("delivery-tag already unsettled on this link")
+    }
+  }
   let bytes = encode_message(message, limits=self.limits)
   if link.peer_max_message != 0UL &&
     bytes.length().to_uint64() > link.peer_max_message {
@@ -93,6 +98,7 @@ pub fn Endpoint::send(
   link.delivery_count += 1U
   if !settled {
     self.outgoing[id] = handle
+    self.outgoing_tags[id] = tag
   }
   self.next_delivery += 1U
   id

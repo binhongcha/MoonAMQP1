@@ -73,6 +73,12 @@ fn Endpoint::receive_transfer(
         ) {
         raise Limit("incoming unsettled deliveries")
       }
+      for (pending_id, pending_handle) in self.incoming {
+        if pending_handle == link.local_handle &&
+          self.incoming_tags[pending_id] == tag {
+          raise Invalid("duplicate unsettled delivery-tag on receiver link", 0)
+        }
+      }
       let partial : PartialDelivery = {
         id,
         tag,
@@ -84,6 +90,10 @@ fn Endpoint::receive_transfer(
       link.delivery_count += 1U
       self.remote_next_delivery = Some(id + 1U)
       link.partial = Some(partial)
+      if !settled {
+        self.incoming[id] = link.local_handle
+        self.incoming_tags[id] = tag
+      }
       partial
     }
   }
@@ -94,6 +104,8 @@ fn Endpoint::receive_transfer(
   }
   partial.fragments += 1
   if aborted {
+    self.incoming.remove(partial.id) |> ignore
+    self.incoming_tags.remove(partial.id) |> ignore
     self.partial_bytes -= partial.bytes.length()
     link.partial = None
     self.event(Aborted(link.local_handle, partial.id))
@@ -112,9 +124,6 @@ fn Endpoint::receive_transfer(
       Bytes::from_array(partial.bytes),
       limits=self.limits,
     )
-    if !partial.settled {
-      self.incoming[partial.id] = link.local_handle
-    }
     link.partial = None
     self.partial_bytes -= partial.bytes.length()
     self.event_bytes += partial.bytes.length()

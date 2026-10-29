@@ -38,6 +38,8 @@ fn Endpoint::release_state(self : Endpoint) -> Unit {
   self.partial_bytes = 0
   self.incoming.clear()
   self.outgoing.clear()
+  self.outgoing_tags.clear()
+  self.incoming_tags.clear()
 }
 
 ///|

@@ -8,6 +8,11 @@ pub fn Endpoint::acknowledge(
   if !self.incoming.contains(id) {
     raise State("no unsettled incoming delivery with this ID")
   }
+  for link in self.links {
+    if link.partial is Some(partial) && partial.id == id {
+      raise State("cannot acknowledge an incomplete delivery")
+    }
+  }
   let frame = self.frame(0x15, [
     Boolean(true),
     UInt(id),
@@ -17,6 +22,7 @@ pub fn Endpoint::acknowledge(
   ])
   self.queue(frame)
   self.incoming.remove(id) |> ignore
+  self.incoming_tags.remove(id) |> ignore
 }
 
 ///|
@@ -40,6 +46,13 @@ fn Endpoint::receive_disposition(
       ids.push(id)
     }
   }
+  if !remote_receiver {
+    for link in self.links {
+      if link.partial is Some(partial) && ids.contains(partial.id) {
+        raise Unsupported("settlement of incomplete delivery")
+      }
+    }
+  }
   ids.sort_by((a, b) => (a - first).compare(b - first))
   let outcome = if remote_receiver {
     Some(Outcome::from_value(perf.field(4)))
@@ -54,6 +67,11 @@ fn Endpoint::receive_disposition(
   }
   for id in ids {
     pending.remove(id) |> ignore
+    if remote_receiver {
+      self.outgoing_tags.remove(id) |> ignore
+    } else {
+      self.incoming_tags.remove(id) |> ignore
+    }
     match outcome {
       Some(outcome) => self.event(Settled(id, outcome))
       None => self.event(PeerSettled(id))

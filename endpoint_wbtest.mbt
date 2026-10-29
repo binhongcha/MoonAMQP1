@@ -228,3 +228,47 @@ test "negotiated sender settle mode is enforced before outbound mutation" {
   b.receive(a.drain())
   assert_true(b.events()[0] is Received({ settled: true, .. }))
 }
+
+///|
+test "unsettled delivery tags are unique per link and reusable after acceptance" {
+  let (a, b) = connected_pair()
+  let (handle, _) = ready_sender(a, b, "unique")
+  let message = Message::data(b"job")
+  let id = a.send(handle, message, b"tag")
+  let before = a.session_positions()
+  assert_true(
+    try {
+      ignore(a.send(handle, message, b"tag"))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  assert_true(
+    try {
+      ignore(a.send(handle, message, b"tag", settled=true))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  assert_eq(a.session_positions(), before)
+  b.receive(a.drain())
+  ignore(b.events())
+  b.acknowledge(id, Accepted)
+  a.receive(b.drain())
+  ignore(a.events())
+  assert_eq(a.send(handle, message, b"tag"), id + 1U)
+}
+
+///|
+test "independent links can each have an unsettled tag with identical bytes" {
+  let (a, b) = connected_pair()
+  let (first, _) = ready_sender(a, b, "first", handle=41U)
+  let (second, _) = ready_sender(a, b, "second", handle=42U)
+  ignore(a.send(first, Message::data(b"a"), b"same"))
+  ignore(a.send(second, Message::data(b"b"), b"same"))
+  b.receive(a.drain())
+  assert_eq(b.events().length(), 2)
+  assert_eq(b.pending().1, 2)
+}

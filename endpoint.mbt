@@ -35,6 +35,8 @@ pub struct Endpoint {
   priv events : Array[Event]
   priv outgoing : Map[UInt32, UInt32]
   priv incoming : Map[UInt32, UInt32]
+  priv outgoing_tags : Map[UInt32, Bytes]
+  priv incoming_tags : Map[UInt32, Bytes]
   priv mut queued_bytes : Int32
   priv mut partial_bytes : Int32
   priv mut event_bytes : Int32
@@ -76,6 +78,8 @@ pub fn Endpoint::new(
     events: [],
     outgoing: Map([]),
     incoming: Map([]),
+    outgoing_tags: Map([]),
+    incoming_tags: Map([]),
     queued_bytes: 0,
     partial_bytes: 0,
     event_bytes: 0,

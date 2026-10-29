@@ -367,3 +367,81 @@ test "unsupported resume transactions and receiver-second fail explicitly" {
     },
   )
 }
+
+///|
+test "receiver rejects tag reuse while prior delivery remains unsettled" {
+  let (a, b) = connected_pair()
+  let (handle, _) = ready_sender(a, b, "duplicate-tag")
+  let payload = encode_message(Message::data(b"job"))
+  b.receive(
+    peer_wire(
+      a,
+      0x14,
+      [UInt(handle), UInt(0U), Binary(b"same"), UInt(0U)],
+      payload~,
+    ),
+  )
+  ignore(b.events())
+  assert_true(
+    try {
+      b.receive(
+        peer_wire(
+          a,
+          0x14,
+          [UInt(handle), UInt(1U), Binary(b"same"), UInt(0U)],
+          payload~,
+        ),
+      )
+      false
+    } catch {
+      _ => true
+    },
+  )
+  assert_true(b.is_failed())
+}
+
+///|
+test "incomplete deliveries consume pending capacity and cannot be acknowledged early" {
+  let (a, b) = connected_pair()
+  let (handle, _) = ready_sender(a, b, "partial-pending")
+  b.receive(
+    peer_wire(
+      a,
+      0x14,
+      [
+        UInt(handle),
+        UInt(0U),
+        Binary(b"part"),
+        UInt(0U),
+        Boolean(false),
+        Boolean(true),
+      ],
+      payload=b"partial",
+    ),
+  )
+  assert_eq(b.pending().1, 1)
+  assert_true(
+    try {
+      b.acknowledge(0U, Accepted)
+      false
+    } catch {
+      _ => true
+    },
+  )
+  assert_eq(b.pending().1, 1)
+  b.receive(
+    peer_wire(a, 0x14, [
+      UInt(handle),
+      Null,
+      Null,
+      Null,
+      Null,
+      Boolean(false),
+      Null,
+      Null,
+      Null,
+      Boolean(true),
+    ]),
+  )
+  assert_eq(b.pending().1, 0)
+}

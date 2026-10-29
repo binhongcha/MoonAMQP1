@@ -13,7 +13,11 @@ fn main raise {
   let mut accepted = 0
   for batch = 0; batch < 32; batch = batch + 1 {
     for item = 0; item < 64; item = item + 1 {
-      let id = sender.send(outgoing, message, b"batch-delivery")
+      let id = sender.send(
+        outgoing,
+        message,
+        @amqp.encode_value(UInt((batch * 64 + item).reinterpret_as_uint())),
+      )
       assert_eq(id, deliveries.reinterpret_as_uint())
       deliveries += 1
     }

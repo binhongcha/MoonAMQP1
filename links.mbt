@@ -155,10 +155,12 @@ fn Endpoint::drop_link(
     .filter(id => self.outgoing[id] == link.local_handle)
   for id in incoming {
     self.incoming.remove(id) |> ignore
+    self.incoming_tags.remove(id) |> ignore
     self.event(UnsettledLost(id, false))
   }
   for id in outgoing {
     self.outgoing.remove(id) |> ignore
+    self.outgoing_tags.remove(id) |> ignore
     self.event(UnsettledLost(id, true))
   }
 }
