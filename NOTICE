@@ -1,0 +1,6 @@
+MoonAMQP1
+Licensed under the Apache License, Version 2.0.
+
+AMQP is an OASIS standard. This project is an independent implementation of an
+explicitly bounded profile and does not claim OASIS certification or affiliation.
+The Windows argv adapter is reused from the user's Apache-2.0 MoonBit projects.

@@ -1,0 +1,21 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "local/moonamqp1/examples/support"
+
+import {
+  "local/moonamqp1",
+}
+
+// Values
+pub fn close(@moonamqp1.Endpoint, @moonamqp1.Endpoint) -> Unit raise
+
+pub fn pair(frame_bytes? : Int32, window? : UInt32) -> (@moonamqp1.Endpoint, @moonamqp1.Endpoint) raise
+
+pub fn sender(@moonamqp1.Endpoint, @moonamqp1.Endpoint, String, String, UInt32, UInt32) -> (UInt32, UInt32) raise
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

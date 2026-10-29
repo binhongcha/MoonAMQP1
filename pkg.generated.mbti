@@ -1,0 +1,205 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "local/moonamqp1"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn decode_frame(Bytes, limits? : Limits) -> Frame raise AmqpError
+
+pub fn decode_message(Bytes, limits? : Limits) -> Message raise AmqpError
+
+pub fn decode_value(Bytes, limits? : Limits) -> Value raise AmqpError
+
+pub fn encode_frame(Frame, limits? : Limits) -> Bytes raise AmqpError
+
+pub fn encode_message(Message, limits? : Limits) -> Bytes raise AmqpError
+
+pub fn encode_value(Value, limits? : Limits) -> Bytes raise AmqpError
+
+pub fn protocol_header() -> Bytes
+
+pub fn serial_distance(UInt32, UInt32) -> UInt32 raise AmqpError
+
+pub fn source(String) -> Value
+
+pub fn target(String) -> Value
+
+pub fn validate_protocol_header(Bytes) -> Unit raise AmqpError
+
+// Errors
+pub suberror AmqpError {
+  Invalid(String, Int32)
+  Unsupported(String)
+  Limit(String)
+  State(String)
+} derive(@debug.Debug)
+pub fn AmqpError::to_repr(Self) -> @debug.Repr
+
+// Types and methods
+pub(all) struct Delivery {
+  handle : UInt32
+  id : UInt32
+  tag : Bytes
+  settled : Bool
+  message : Message
+}
+
+pub struct Endpoint {
+  // private fields
+}
+pub fn Endpoint::acknowledge(Self, UInt32, Outcome) -> Unit raise AmqpError
+pub fn Endpoint::attach(Self, String, Bool, String, handle? : UInt32) -> UInt32 raise AmqpError
+pub fn Endpoint::begin(Self) -> Unit raise AmqpError
+pub fn Endpoint::close(Self) -> Unit raise AmqpError
+pub fn Endpoint::detach(Self, UInt32) -> Unit raise AmqpError
+pub fn Endpoint::drain(Self) -> Bytes
+pub fn Endpoint::end_session(Self) -> Unit raise AmqpError
+pub fn Endpoint::events(Self) -> Array[Event]
+pub fn Endpoint::finish_input(Self) -> Unit raise AmqpError
+pub fn Endpoint::grant(Self, UInt32, UInt32) -> Unit raise AmqpError
+pub fn Endpoint::heartbeat(Self) -> Unit raise AmqpError
+pub fn Endpoint::is_closed(Self) -> Bool
+pub fn Endpoint::is_failed(Self) -> Bool
+pub fn Endpoint::link_credit(Self, UInt32) -> UInt32 raise AmqpError
+pub fn Endpoint::new(String, channel? : Int32, window? : UInt32, limits? : Limits) -> Self raise AmqpError
+pub fn Endpoint::pending(Self) -> (Int32, Int32)
+pub fn Endpoint::receive(Self, Bytes) -> Unit raise AmqpError
+pub fn Endpoint::refresh_windows(Self, UInt32, UInt32) -> Unit raise AmqpError
+pub fn Endpoint::send(Self, UInt32, Message, Bytes, settled? : Bool) -> UInt32 raise AmqpError
+pub fn Endpoint::session_positions(Self) -> (UInt32, UInt32)
+pub fn Endpoint::start(Self) -> Unit raise AmqpError
+
+pub enum Event {
+  RemoteOpen(String)
+  SessionReady
+  LinkReady(UInt32, String, Bool)
+  Credit(UInt32, UInt32)
+  Received(Delivery)
+  Settled(UInt32, Outcome)
+  PeerSettled(UInt32)
+  UnsettledLost(UInt32, Bool)
+  Aborted(UInt32, UInt32)
+  Detached(UInt32)
+  SessionEnded(Value)
+  RemoteClosed(Value)
+}
+
+pub(all) struct Frame {
+  channel : Int32
+  performative : Performative?
+  payload : Bytes
+  extended_header : Bytes
+}
+
+pub struct FrameStream {
+  // private fields
+}
+pub fn FrameStream::buffered_bytes(Self) -> Int32
+pub fn FrameStream::feed(Self, Bytes) -> Array[StreamItem] raise AmqpError
+pub fn FrameStream::finish(Self) -> Unit raise AmqpError
+pub fn FrameStream::new(expect_header? : Bool, limits? : Limits) -> Self raise AmqpError
+
+pub(all) struct Limits {
+  max_value_bytes : Int32
+  max_frame_bytes : Int32
+  max_message_bytes : Int32
+  max_items : Int32
+  max_depth : Int32
+  max_links : Int32
+  max_pending : Int32
+  max_fragments : Int32
+} derive(Eq, @debug.Debug)
+pub fn Limits::default() -> Self
+pub fn Limits::equal(Self, Self) -> Bool
+pub fn Limits::not_equal(Self, Self) -> Bool
+pub fn Limits::to_repr(Self) -> @debug.Repr
+
+pub struct Message {
+  // private fields
+}
+pub fn Message::data(Bytes, properties? : Array[(String, Value)], limits? : Limits) -> Self raise AmqpError
+pub fn Message::data_bytes(Self) -> Bytes raise AmqpError
+pub fn Message::new(Array[Section], limits? : Limits) -> Self raise AmqpError
+pub fn Message::sections(Self) -> Array[Section]
+
+pub(all) enum Outcome {
+  Accepted
+  Rejected(String, String?)
+  RejectedWithoutError
+  Released
+  Modified(Bool, Bool)
+} derive(Eq, @debug.Debug)
+pub fn Outcome::equal(Self, Self) -> Bool
+pub fn Outcome::from_value(Value) -> Self raise AmqpError
+pub fn Outcome::not_equal(Self, Self) -> Bool
+pub fn Outcome::to_repr(Self) -> @debug.Repr
+pub fn Outcome::value(Self) -> Value
+
+pub struct Performative {
+  // private fields
+}
+pub fn Performative::descriptor(Self) -> Int32
+pub fn Performative::field(Self, Int32) -> Value
+pub fn Performative::from_value(Value, limits? : Limits) -> Self raise AmqpError
+pub fn Performative::new(Int32, Array[Value], limits? : Limits) -> Self raise AmqpError
+pub fn Performative::value(Self) -> Value
+
+pub(all) struct Section {
+  descriptor : Int32
+  body : Value
+}
+
+pub struct SessionWindow {
+  // private fields
+}
+pub fn SessionWindow::can_send(Self, frames? : Int32) -> Bool
+pub fn SessionWindow::establish(Self, UInt32, UInt32, UInt32) -> Unit raise AmqpError
+pub fn SessionWindow::new(UInt32, UInt32, next_outgoing? : UInt32) -> Self raise AmqpError
+pub fn SessionWindow::positions(Self) -> (UInt32, UInt32)
+pub fn SessionWindow::received(Self) -> Unit raise AmqpError
+pub fn SessionWindow::refresh(Self, UInt32, UInt32) -> Unit raise AmqpError
+pub fn SessionWindow::remaining(Self) -> (UInt32, UInt32, UInt32)
+pub fn SessionWindow::sent(Self, frames? : Int32) -> Unit raise AmqpError
+pub fn SessionWindow::update_peer(Self, UInt32?, UInt32, UInt32, UInt32) -> Unit raise AmqpError
+
+pub enum StreamItem {
+  Header
+  AmqpFrame(Frame)
+}
+
+pub(all) enum Value {
+  Null
+  Boolean(Bool)
+  UByte(Int32)
+  UShort(Int32)
+  UInt(UInt32)
+  ULong(UInt64)
+  ByteValue(Int32)
+  Short(Int32)
+  IntValue(Int32)
+  Long(Int64)
+  FloatValue(Float)
+  DoubleValue(Double)
+  Decimal32(Bytes)
+  Decimal64(Bytes)
+  Decimal128(Bytes)
+  Character(UInt32)
+  Timestamp(Int64)
+  Uuid(Bytes)
+  Binary(Bytes)
+  Text(String)
+  Symbol(String)
+  List(Array[Value])
+  MapValue(Array[(Value, Value)])
+  ArrayValue(Int32, Value?, Array[Value])
+  Described(Value, Value)
+} derive(@debug.Debug)
+pub fn Value::as_text(Self) -> String raise AmqpError
+pub fn Value::as_uint(Self) -> UInt32 raise AmqpError
+pub fn Value::to_repr(Self) -> @debug.Repr
+
+// Type aliases
+
+// Traits

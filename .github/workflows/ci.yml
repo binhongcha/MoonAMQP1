@@ -1,0 +1,51 @@
+name: check-build-test
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install official MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: Strict check build and tests
+        run: |
+          moon version --all
+          moon check --target all --deny-warn
+          moon build --target all --deny-warn
+          moon test --target all --deny-warn
+      - name: Formatting and generated public interfaces
+        run: |
+          moon fmt --check
+          moon info
+          git diff --exit-code
+      - name: Scenarios and sustained bounded workload
+        run: |
+          moon run examples/tasks --target native --deny-warn
+          moon run examples/telemetry --target native --deny-warn
+          moon run examples/bridge --target js --deny-warn
+          moon run examples/scale --target native --deny-warn
+      - name: Independent Rhea codec and live peer verification
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run interop
+      - name: Local package contents and source hygiene
+        run: |
+          moon package
+          python scripts/verify_repository.py
