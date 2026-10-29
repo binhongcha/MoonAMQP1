@@ -1,0 +1,75 @@
+///|
+async fn peer() -> Unit {
+  let endpoint = @amqp.Endpoint::new("moonamqp1-stdio", channel=7, window=8192U)
+  // Binary stdin/stdout are an ordered host transport, with no SASL or TLS layer.
+  while !endpoint.is_closed() {
+    let bytes = match @stdio.stdin.read_some(max_len=16384) {
+      Some(b) => b
+      None => break
+    }
+    // Deliver a completed protocol item before applying host policy.
+    for byte in bytes {
+      endpoint.receive(Bytes::from_array([byte]))
+      for event in endpoint.events() {
+        match event {
+          LinkReady(handle, _, false) => endpoint.grant(handle, 32U)
+          Received(delivery) =>
+            if !delivery.settled {
+              endpoint.acknowledge(delivery.id, Accepted)
+            }
+          _ => ()
+        }
+      }
+      let output = endpoint.drain()
+      if !output.is_empty() {
+        @stdio.stdout.write(output)
+      }
+    }
+  }
+  endpoint.finish_input()
+}
+
+///|
+async fn run() -> Unit {
+  let args = @env.args()
+  if args.length() == 2 && args[1] == "peer" {
+    peer()
+    return
+  }
+  if args.length() != 4 {
+    raise Failure(
+      "usage: moonamqp1 value|message|frames INPUT NEW_OUTPUT | peer",
+    )
+  }
+  if @fs.file_size(args[2][:]) >
+    @amqp.Limits::default().max_value_bytes.to_int64() {
+    raise Failure("input exceeds byte budget")
+  }
+  let bytes = @fs.read_file(args[2][:]).binary()
+  let output = match args[1] {
+    "value" => @amqp.encode_value(@amqp.decode_value(bytes))
+    "message" => @amqp.encode_message(@amqp.decode_message(bytes))
+    "frames" => {
+      let stream = @amqp.FrameStream::new()
+      let result : Array[Byte] = []
+      for item in stream.feed(bytes) {
+        let encoded = match item {
+          Header => @amqp.protocol_header()
+          AmqpFrame(frame) => @amqp.encode_frame(frame)
+        }
+        for byte in encoded {
+          result.push(byte)
+        }
+      }
+      stream.finish()
+      Bytes::from_array(result)
+    }
+    _ => raise Failure("unknown codec command")
+  }
+  @fs.write_file(args[3][:], output, create_mode=CreateNew)
+}
+
+///|
+async fn main {
+  run()
+}

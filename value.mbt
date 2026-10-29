@@ -1,6 +1,6 @@
 ///|
 /// Exact wire domains; ULong/Long never travel through Double.
-pub enum Value {
+pub(all) enum Value {
   Null
   Boolean(Bool)
   UByte(Int32)

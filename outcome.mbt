@@ -1,5 +1,5 @@
 ///|
-pub enum Outcome {
+pub(all) enum Outcome {
   Accepted
   Rejected(String, String?)
   Released
