@@ -24,6 +24,8 @@ pub fn Endpoint::receive(
   errdefer {
     self.failed = true
     self.release_state()
+    self.events.clear()
+    self.event_bytes = 0
     self.outbound.clear()
     self.queued_bytes = 0
   }

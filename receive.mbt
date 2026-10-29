@@ -88,13 +88,19 @@ fn Endpoint::receive_transfer(
   }
   partial.fragments += 1
   if aborted {
+    self.partial_bytes -= partial.bytes.length()
     link.partial = None
     self.event(Aborted(link.local_handle, partial.id))
     return
   }
+  if payload.length() >
+    self.limits.max_value_bytes - self.partial_bytes - self.event_bytes {
+    raise Limit("aggregate incoming payload budget; drain events")
+  }
   for byte in payload {
     partial.bytes.push(byte)
   }
+  self.partial_bytes += payload.length()
   if !more {
     let message = decode_message(
       Bytes::from_array(partial.bytes),
@@ -104,6 +110,8 @@ fn Endpoint::receive_transfer(
       self.incoming[partial.id] = link.local_handle
     }
     link.partial = None
+    self.partial_bytes -= partial.bytes.length()
+    self.event_bytes += partial.bytes.length()
     self.event(
       Received({
         handle: link.local_handle,

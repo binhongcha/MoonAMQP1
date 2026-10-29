@@ -167,3 +167,43 @@ test "session end handshakes without impersonating a connection close" {
   a.receive(b.drain())
   assert_true(a.is_closed())
 }
+
+///|
+test "detaching a link exposes unresolved delivery loss and releases pending slots" {
+  let (a, b) = connected_pair()
+  let (handle, _) = ready_sender(a, b, "pending")
+  ignore(a.send(handle, Message::data(b"job"), b"tag"))
+  b.receive(a.drain())
+  ignore(b.events())
+  a.detach(handle)
+  assert_eq(a.pending(), (0, 0))
+  assert_true(a.events()[0] is UnsettledLost(0U, true))
+  b.receive(a.drain())
+  assert_eq(b.pending(), (0, 0))
+  assert_true(b.events()[0] is UnsettledLost(0U, false))
+}
+
+///|
+test "aggregate completed-message event bytes are bounded until host drains events" {
+  let (a, b) = connected_pair(frame_bytes=8192)
+  let (handle, _) = ready_sender(a, b, "budget")
+  let message = Message::data(Bytes::from_array(Array::make(5000, 0x41)))
+  // The public value budget bounds all retained incoming encoded payloads together.
+  // A private endpoint with the same negotiated state permits a compact regression.
+  let limited = { ..b, limits: { ..b.limits, max_value_bytes: 8192, }, }
+  ignore(a.send(handle, message, b"one", settled=true))
+  limited.receive(a.drain())
+  assert_true(limited.event_bytes > 5000)
+  ignore(a.send(handle, message, b"two", settled=true))
+  assert_true(
+    try {
+      limited.receive(a.drain())
+      false
+    } catch {
+      _ => true
+    },
+  )
+  assert_true(limited.is_failed())
+  assert_eq(limited.partial_bytes, 0)
+  assert_eq(limited.event_bytes, 0)
+}

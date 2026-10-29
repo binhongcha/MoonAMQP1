@@ -82,9 +82,10 @@ pub fn Endpoint::detach(
 ) -> Unit raise AmqpError {
   self.session_active()
   let link = self.local_link(handle)
+  self.check_drop_capacity(link)
   self.queue(self.frame(0x16, [UInt(handle), Boolean(true)]))
+  self.drop_link(link)
   link.closed = true
-  link.partial = None
 }
 
 ///|
@@ -106,12 +107,62 @@ fn Endpoint::receive_detach(
   if !bool_field(perf, 1, false) {
     raise Unsupported("link detach without close and resume")
   }
+  self.check_drop_capacity(link)
   if !link.closed {
     self.queue(self.frame(0x16, [UInt(link.local_handle), Boolean(true)]))
   }
   link.closed = true
-  link.partial = None
+  self.drop_link(link)
   self.event(Detached(link.local_handle))
+}
+
+///|
+fn Endpoint::check_drop_capacity(
+  self : Endpoint,
+  link : LinkState,
+) -> Unit raise AmqpError {
+  let mut count = 1
+  for (_, handle) in self.incoming {
+    if handle == link.local_handle {
+      count += 1
+    }
+  }
+  for (_, handle) in self.outgoing {
+    if handle == link.local_handle {
+      count += 1
+    }
+  }
+  if count > self.limits.max_pending - self.events.length() {
+    raise Limit("detach event budget")
+  }
+}
+
+///|
+fn Endpoint::drop_link(
+  self : Endpoint,
+  link : LinkState,
+) -> Unit raise AmqpError {
+  match link.partial {
+    Some(p) => self.partial_bytes -= p.bytes.length()
+    None => ()
+  }
+  link.partial = None
+  let incoming = self.incoming
+    .keys()
+    .to_array()
+    .filter(id => self.incoming[id] == link.local_handle)
+  let outgoing = self.outgoing
+    .keys()
+    .to_array()
+    .filter(id => self.outgoing[id] == link.local_handle)
+  for id in incoming {
+    self.incoming.remove(id) |> ignore
+    self.event(UnsettledLost(id, false))
+  }
+  for id in outgoing {
+    self.outgoing.remove(id) |> ignore
+    self.event(UnsettledLost(id, true))
+  }
 }
 
 ///|

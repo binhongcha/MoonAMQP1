@@ -16,6 +16,7 @@ pub enum Event {
   Received(Delivery)
   Settled(UInt32, Outcome)
   PeerSettled(UInt32)
+  UnsettledLost(UInt32, Bool)
   Aborted(UInt32, UInt32)
   Detached(UInt32)
   SessionEnded(Value)
@@ -35,6 +36,8 @@ pub struct Endpoint {
   priv outgoing : Map[UInt32, UInt32]
   priv incoming : Map[UInt32, UInt32]
   priv mut queued_bytes : Int32
+  priv mut partial_bytes : Int32
+  priv mut event_bytes : Int32
   priv mut started : Bool
   priv mut remote_open : Bool
   priv mut begin_sent : Bool
@@ -74,6 +77,8 @@ pub fn Endpoint::new(
     outgoing: Map([]),
     incoming: Map([]),
     queued_bytes: 0,
+    partial_bytes: 0,
+    event_bytes: 0,
     started: false,
     remote_open: false,
     begin_sent: false,
@@ -189,6 +194,7 @@ pub fn Endpoint::drain(self : Endpoint) -> Bytes {
 pub fn Endpoint::events(self : Endpoint) -> Array[Event] {
   let events = self.events.copy()
   self.events.clear()
+  self.event_bytes = 0
   events
 }
 

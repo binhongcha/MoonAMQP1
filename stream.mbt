@@ -42,6 +42,9 @@ pub fn FrameStream::feed(
   errdefer {
     self.failed = true
   }
+  if bytes.length() > self.limits.max_value_bytes {
+    raise Limit("stream feed bytes")
+  }
   let items : Array[StreamItem] = []
   for byte in bytes {
     self.pending.push(byte)

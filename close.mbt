@@ -35,6 +35,7 @@ fn Endpoint::release_state(self : Endpoint) -> Unit {
     link.closed = true
     link.partial = None
   }
+  self.partial_bytes = 0
   self.incoming.clear()
   self.outgoing.clear()
 }
