@@ -94,12 +94,14 @@ function codecs() {
   const canonical = run('frames', input);
   assert.deepEqual(run('frames', canonical), canonical);
   let pos = 8, frameCount = 0;
-  while (pos < canonical.length) { const frame = frames.read_frame(canonical.subarray(pos)); assert(frame); pos += frame.size; frameCount++; }
+  while (pos < canonical.length) { const size = canonical.readUInt32BE(pos); const frame = frames.read_frame(canonical.subarray(pos,pos+size)); assert(frame); pos += frame.size; frameCount++; }
   assert.equal(frameCount,5);
   console.log(`Rhea 3.0.5: ${vectors.length} typed values, message sections and frame streams passed bidirectional checks`);
 }
 async function livePeer() {
   const child = cp.spawn(exe, ['peer'], { stdio:['pipe','pipe','pipe'] });
+  const sentChunks = [], originalWrite = child.stdin.write.bind(child.stdin);
+  child.stdin.write = (chunk, ...args) => { sentChunks.push(Buffer.from(chunk)); return originalWrite(chunk, ...args); };
   let stderr = '';
   child.stderr.on('data', b => { stderr += b; });
   child.on('exit', code => { if (code !== 0) console.error(`Moon peer exit ${code}: ${stderr}`); });
@@ -123,10 +125,20 @@ async function livePeer() {
     connection.open_sender({ name:'oracle-task', target:{ address:'jobs' }, snd_settle_mode:2, rcv_settle_mode:0 });
     await closed;
     assert.equal(count,1);
+    const wire = Buffer.concat(sentChunks);
+    let pos = 8, transfers = 0;
+    while (pos < wire.length) {
+      const size = wire.readUInt32BE(pos);
+      const frame = frames.read_frame(wire.subarray(pos,pos+size));
+      assert(frame);
+      if (frame.performative && frame.performative.constructor.descriptor.numeric === 0x14) transfers++;
+      pos += frame.size;
+    }
+    assert(transfers > 1, 'live oracle must actually fragment the delivery');
     child.stdin.end();
     const exitCode = await new Promise(resolve => child.on('exit',resolve));
     assert.equal(exitCode,0,stderr);
-    console.log('Live Rhea client over binary stdio: open/begin/attach/credit/fragmented transfer/accepted/close passed');
+    console.log(`Live Rhea client over binary stdio: ${transfers} transfer frames, open/begin/attach/credit/accepted/close passed`);
   } finally { child.kill(); }
 }
 (async () => { try { codecs(); await livePeer(); } finally { fs.rmSync(temp,{recursive:true,force:true}); } })().catch(error => { console.error(error); process.exitCode=1; });

@@ -1,6 +1,11 @@
 ///|
 async fn peer() -> Unit {
-  let endpoint = @amqp.Endpoint::new("moonamqp1-stdio", channel=7, window=8192U)
+  let endpoint = @amqp.Endpoint::new(
+    "moonamqp1-stdio",
+    channel=7,
+    window=8192U,
+    limits={ ..@amqp.Limits::default(), max_frame_bytes: 512, },
+  )
   // Binary stdin/stdout are an ordered host transport, with no SASL or TLS layer.
   while !endpoint.is_closed() {
     let bytes = match @stdio.stdin.read_some(max_len=16384) {
