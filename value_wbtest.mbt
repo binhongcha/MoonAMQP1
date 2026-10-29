@@ -116,3 +116,48 @@ test "container limits prevent tiny zero-width array amplification" {
     },
   )
 }
+
+///|
+test "map keys retain order allow null and reject duplicate values across compact forms" {
+  let value = MapValue([
+    (Null, Text("null-key")),
+    (UInt(1U), Text("uint")),
+    (ULong(1UL), Text("ulong")),
+  ])
+  let bytes = encode_value(value)
+  assert_eq(encode_value(decode_value(bytes)), bytes)
+  assert_true(
+    try {
+      ignore(encode_value(MapValue([(UInt(1U), Null), (UInt(1U), Null)])))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  // uint0 and full-width uint(0) are one key, not two distinct byte strings.
+  assert_true(
+    try {
+      ignore(decode_value(b"\xc1\x09\x04\x43\x40\x70\x00\x00\x00\x00\x40"))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  let open = Performative::new(0x10, [
+    Text("single-capability"),
+    Null,
+    Null,
+    Null,
+    Null,
+    Null,
+    Null,
+    Symbol("capability"),
+  ])
+  assert_true(open.field(7) is Symbol(_))
+  assert_eq(
+    encode_value(decode_value(b"\xe0\x02\x03\x41")),
+    encode_value(
+      ArrayValue(0x56, None, [Boolean(true), Boolean(true), Boolean(true)]),
+    ),
+  )
+}

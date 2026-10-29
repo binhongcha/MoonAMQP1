@@ -149,10 +149,13 @@ fn read_container(
   }
   if map {
     let pairs : Array[(Value, Value)] = []
+    let seen : Map[Bytes, Bool] = Map([])
     for i = 0; i < count; i = i + 2 {
-      if items[i] is Null {
-        raise Invalid("null map key", reader.pos)
+      let key = encode_value(items[i], limits=reader.limits)
+      if seen.contains(key) {
+        raise Invalid("duplicate map key value", reader.pos)
       }
+      seen[key] = true
       pairs.push((items[i], items[i + 1]))
     }
     MapValue(pairs)

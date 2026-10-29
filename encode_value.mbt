@@ -141,15 +141,22 @@ fn write_body(
       if entries.length() > budget.limits.max_items / 2 {
         raise Limit("map entries")
       }
-      let flat : Array[Value] = []
+      let body = wire_writer(budget.limits.max_value_bytes)
+      body.number((entries.length() * 2).to_uint64(), 4)
+      let seen : Map[Bytes, Bool] = Map([])
       for (key, item) in entries {
-        if key is Null {
-          raise Invalid("null map key", 0)
+        let key_writer = wire_writer(budget.limits.max_value_bytes)
+        write_value(key_writer, key, budget, depth + 1)
+        let encoded_key = key_writer.finish()
+        if seen.contains(encoded_key) {
+          raise Invalid("duplicate map key value", 0)
         }
-        flat.push(key)
-        flat.push(item)
+        seen[encoded_key] = true
+        body.put(encoded_key)
+        write_value(body, item, budget, depth + 1)
       }
-      write_sequence(writer, flat, budget, depth)
+      writer.number(body.bytes.length().to_uint64(), 4)
+      writer.put(body.finish())
     }
     ArrayValue(element_code, descriptor, items) => {
       if items.length() > budget.limits.max_items {

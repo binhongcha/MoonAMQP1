@@ -106,7 +106,7 @@ fn wire_kind(value : Value, kind : Int32) -> Bool {
     | (6, ULong(_))
     | (7, Binary(_))
     | (8, Described(_, _)) => true
-    (9, ArrayValue(0xb3, None, _)) => true
+    (9, ArrayValue(0xb3, None, _)) | (9, Symbol(_)) => true
     (10, MapValue(entries)) => entries.all(pair => pair.0 is Symbol(_))
     (11, MapValue(_)) => true
     _ => false
