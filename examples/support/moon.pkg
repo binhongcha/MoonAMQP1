@@ -1,0 +1,3 @@
+import {
+  "local/moonamqp1" @amqp,
+}
