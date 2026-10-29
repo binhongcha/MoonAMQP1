@@ -17,13 +17,13 @@ fn bounded_window(value : UInt32) -> Unit raise AmqpError {
 
 ///|
 pub struct SessionWindow {
-  mut next_out : UInt32
-  mut next_in : UInt32
-  mut incoming : UInt32
-  mut outgoing : UInt32
-  mut peer_incoming : UInt32
-  mut peer_outgoing : UInt32
-  mut established : Bool
+  priv mut next_out : UInt32
+  priv mut next_in : UInt32
+  priv mut incoming : UInt32
+  priv mut outgoing : UInt32
+  priv mut peer_incoming : UInt32
+  priv mut peer_outgoing : UInt32
+  priv mut established : Bool
 }
 
 ///|

@@ -6,12 +6,12 @@ pub enum StreamItem {
 
 ///|
 pub struct FrameStream {
-  limits : Limits
-  pending : Array[Byte]
-  mut expected : Int32
-  mut header_needed : Bool
-  mut failed : Bool
-  mut ended : Bool
+  priv limits : Limits
+  priv pending : Array[Byte]
+  priv mut expected : Int32
+  priv mut header_needed : Bool
+  priv mut failed : Bool
+  priv mut ended : Bool
 }
 
 ///|

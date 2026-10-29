@@ -6,7 +6,7 @@ pub(all) struct Section {
 
 ///|
 pub struct Message {
-  sections : Array[Section]
+  priv sections : Array[Section]
 }
 
 ///|

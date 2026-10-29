@@ -1,8 +1,8 @@
 ///|
 /// Validated transport list. Accessors return detached snapshots.
 pub struct Performative {
-  code : Int32
-  fields : Array[Value]
+  priv code : Int32
+  priv fields : Array[Value]
 }
 
 ///|
