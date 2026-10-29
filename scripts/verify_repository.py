@@ -12,7 +12,7 @@ private_terms = ("申报书", "审查报告", "自查报告", "辅助报告", "�
 
 def check_name(name, in_package=False):
     parts = set(name.replace("\\", "/").split("/"))
-    forbidden = private_parts - ({"_build"} if in_package else set())
+    forbidden = private_parts
     if parts & forbidden or any(term in name for term in private_terms):
         raise SystemExit("Private/generated material leaked: " + name)
 

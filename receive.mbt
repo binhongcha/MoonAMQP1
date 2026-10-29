@@ -60,6 +60,9 @@ fn Endpoint::receive_transfer(
         _ => ()
       }
       let settled = bool_field(perf, 4, false)
+      if self.incoming.contains(id) {
+        raise Invalid("delivery-id wrap collides with unsettled delivery", 0)
+      }
       if (link.settle_mode == 0 && settled) ||
         (link.settle_mode == 1 && !settled) {
         raise Invalid(

@@ -89,5 +89,15 @@ async fn run() -> Unit {
 
 ///|
 async fn main {
-  run()
+  run() catch {
+    @amqp.AmqpError::Invalid(message, offset) =>
+      raise Failure("invalid AMQP at byte \{offset}: \{message}")
+    @amqp.AmqpError::Unsupported(message) =>
+      raise Failure("unsupported AMQP profile: \{message}")
+    @amqp.AmqpError::Limit(message) =>
+      raise Failure("AMQP resource limit: \{message}")
+    @amqp.AmqpError::State(message) =>
+      raise Failure("AMQP state error: \{message}")
+    error => raise error
+  }
 }

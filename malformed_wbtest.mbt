@@ -445,3 +445,37 @@ test "incomplete deliveries consume pending capacity and cannot be acknowledged 
   )
   assert_eq(b.pending().1, 0)
 }
+
+///|
+test "wrapped delivery IDs cannot alias an old pending delivery even if pre-settled" {
+  let (a, b) = connected_pair()
+  let (handle, _) = ready_sender(a, b, "wrap-collision")
+  let payload = encode_message(Message::data(b"job"))
+  b.receive(
+    peer_wire(
+      a,
+      0x14,
+      [UInt(handle), UInt(0U), Binary(b"old"), UInt(0U)],
+      payload~,
+    ),
+  )
+  ignore(b.events())
+  // Model a full serial cycle while the original unsettled ID survives.
+  b.remote_next_delivery = Some(0U)
+  assert_true(
+    try {
+      b.receive(
+        peer_wire(
+          a,
+          0x14,
+          [UInt(handle), UInt(0U), Binary(b"new"), UInt(0U), Boolean(true)],
+          payload~,
+        ),
+      )
+      false
+    } catch {
+      _ => true
+    },
+  )
+  assert_true(b.is_failed())
+}

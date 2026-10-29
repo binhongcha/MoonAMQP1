@@ -86,7 +86,7 @@ fn main raise {
 2. 每次输入调用 `receive(bytes)`，处理 `events()`，再发送 `drain()`。被动端收到协议 header 会自动响应 open。
 3. 主动一方在 RemoteOpen 后调用 `begin()`，另一方自动接受单 session；收到 SessionReady 后 attach sender/receiver。
 4. 接收 link ready 后调用 `grant(handle, credit)`。这设置以当前 delivery-count 为基准的新额度，不是累加旧额度。
-5. sender 使用本地 handle 调用 `send(message, tag)`；收到完整 Received 后按业务结果 `acknowledge(id, outcome)`。tag 最多 32 字节，不提供跨重连幂等性。
+5. sender 使用本地 handle 调用 `send(message, tag)`；收到完整 Received 后按业务结果 `acknowledge(id, outcome)`。tag 最多 32 字节，同一 link 的在途未确认标签必须唯一；标签不提供跨重连幂等性。
 6. 显式 `refresh_windows(incoming, outgoing)` 重新通告宿主可承担的会话窗口；对端 flow 会更新远端容量。它与 grant link credit 是两个独立操作。
 7. 正常结束用 `end_session()` 或 `close()` 完成相应握手；传输 EOF 调用 `finish_input()`，无正常 close 会被报告。
 
