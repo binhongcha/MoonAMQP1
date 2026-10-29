@@ -19,6 +19,7 @@ priv struct LinkState {
   mut delivery_count : UInt32
   mut credit : UInt32
   mut peer_max_message : UInt64
+  mut settle_mode : Int32
   mut partial : PartialDelivery?
 }
 
@@ -40,6 +41,7 @@ fn link_state(
     delivery_count: 0U,
     credit: 0U,
     peer_max_message: 0UL,
+    settle_mode: 2,
     partial: None,
   }
 }
@@ -73,6 +75,10 @@ fn LinkState::attach(
     ULong(n) => n
     _ => 0UL
   }
+  let mode = match perf.field(3) {
+    UByte(n) => n
+    _ => 2
+  }
   let count = if self.sender {
     self.delivery_count
   } else {
@@ -80,6 +86,7 @@ fn LinkState::attach(
   }
   self.remote_handle = Some(uint_field(perf, 1, 0U))
   self.peer_max_message = peer_max
+  self.settle_mode = mode
   self.delivery_count = count
   self.ready = true
 }
@@ -101,7 +108,7 @@ fn LinkState::attach_fields(self : LinkState, limits : Limits) -> Array[Value] {
     Text(self.name),
     UInt(self.local_handle),
     Boolean(!self.sender),
-    UByte(2),
+    UByte(self.settle_mode),
     UByte(0),
     source(self.address),
     target(self.address),

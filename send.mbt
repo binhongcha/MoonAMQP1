@@ -15,6 +15,11 @@ pub fn Endpoint::send(
   if tag.length() > 32 {
     raise Invalid("delivery tag length", 0)
   }
+  if (link.settle_mode == 0 && settled) || (link.settle_mode == 1 && !settled) {
+    raise State(
+      "delivery settlement disagrees with negotiated sender settle mode",
+    )
+  }
   if !settled && self.outgoing.length() >= self.limits.max_pending {
     raise Limit("outgoing unsettled deliveries")
   }

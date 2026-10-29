@@ -207,3 +207,24 @@ test "aggregate completed-message event bytes are bounded until host drains even
   assert_eq(limited.partial_bytes, 0)
   assert_eq(limited.event_bytes, 0)
 }
+
+///|
+test "negotiated sender settle mode is enforced before outbound mutation" {
+  let (a, b) = connected_pair()
+  let (handle, _) = ready_sender(a, b, "settled-only")
+  a.local_link(handle).settle_mode = 1
+  let before = a.session_positions()
+  assert_true(
+    try {
+      ignore(a.send(handle, Message::data(b"x"), b"t"))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  assert_eq(a.session_positions(), before)
+  assert_eq(a.link_credit(handle), 4U)
+  assert_eq(a.send(handle, Message::data(b"x"), b"t", settled=true), 0U)
+  b.receive(a.drain())
+  assert_true(b.events()[0] is Received({ settled: true, .. }))
+}

@@ -60,6 +60,12 @@ fn Endpoint::receive_transfer(
         _ => ()
       }
       let settled = bool_field(perf, 4, false)
+      if (link.settle_mode == 0 && settled) ||
+        (link.settle_mode == 1 && !settled) {
+        raise Invalid(
+          "transfer settlement disagrees with sender settle mode", 0,
+        )
+      }
       if !settled &&
         (
           self.incoming.contains(id) ||
