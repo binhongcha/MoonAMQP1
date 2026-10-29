@@ -62,7 +62,7 @@ pub fn Endpoint::new(
 ) -> Endpoint raise AmqpError {
   limits.validate()
   require_range(channel, 0, 65535)
-  if text_bytes(container).length() > 4096 || container.is_empty() {
+  if text_bytes(container, maximum=4096).length() == 0 {
     raise Invalid("container-id length", 0)
   }
   {

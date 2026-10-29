@@ -161,3 +161,44 @@ test "map keys retain order allow null and reject duplicate values across compac
     ),
   )
 }
+
+///|
+test "Unicode surrogates fail consistently and BOM plus ASCII NUL remain data" {
+  let broken = "🌙".unsafe_substring(start=0, end=1)
+  assert_true(
+    try {
+      ignore(encode_value(Text(broken)))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  assert_true(
+    try {
+      ignore(decode_value(b"\xa1\x03\xed\xa0\x80"))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  let bom = decode_value(b"\xa1\x04\xef\xbb\xbf\x61")
+  assert_eq(bom.as_text(), "\uFEFFa")
+  let nul_symbol = Symbol("a\u0000b")
+  assert_eq(
+    encode_value(decode_value(encode_value(nul_symbol))),
+    encode_value(nul_symbol),
+  )
+  assert_true(
+    try {
+      ignore(
+        encode_value(Text("🌙🌙"), limits={
+          ..Limits::default(),
+          max_value_bytes: 8,
+        }),
+      )
+      false
+    } catch {
+      _ => true
+    },
+  )
+}

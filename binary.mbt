@@ -117,7 +117,43 @@ fn WireWriter::finish(self : WireWriter) -> Bytes {
 }
 
 ///|
-fn text_bytes(value : String) -> Bytes {
+fn text_bytes(
+  value : String,
+  maximum~ : Int32 = 2147483647,
+) -> Bytes raise AmqpError {
+  let units = value.code_units()
+  let mut index = 0
+  let mut size = 0
+  while index < units.length() {
+    let unit = units[index].to_int()
+    if unit >= 0xd800 && unit <= 0xdbff {
+      if index + 1 >= units.length() ||
+        units[index + 1].to_int() < 0xdc00 ||
+        units[index + 1].to_int() > 0xdfff {
+        raise Invalid("unpaired UTF-16 leading surrogate", index)
+      }
+      size = checked_add(size, 4)
+      index += 2
+    } else {
+      if unit >= 0xdc00 && unit <= 0xdfff {
+        raise Invalid("unpaired UTF-16 trailing surrogate", index)
+      }
+      size = checked_add(
+        size,
+        if unit < 0x80 {
+          1
+        } else if unit < 0x800 {
+          2
+        } else {
+          3
+        },
+      )
+      index += 1
+    }
+    if size > maximum {
+      raise Limit("UTF-8 encoded bytes")
+    }
+  }
   @utf8.encode(value)
 }
 

@@ -11,7 +11,7 @@ pub fn Endpoint::attach(
     handle > self.peer_handle_max {
     raise Limit("link handle count or peer handle-max")
   }
-  if name.is_empty() || text_bytes(name).length() > 4096 {
+  if text_bytes(name, maximum=4096).is_empty() {
     raise Invalid("link name", 0)
   }
   for link in self.links {
@@ -33,9 +33,7 @@ fn Endpoint::receive_attach(
 ) -> Unit raise AmqpError {
   let name = perf.field(0).as_text()
   let remote_handle = uint_field(perf, 1, 0U)
-  if text_bytes(name).length() > 4096 {
-    raise Limit("remote link name")
-  }
+  ignore(text_bytes(name, maximum=4096))
   for existing in self.links {
     if !existing.closed && existing.remote_handle == Some(remote_handle) {
       raise Invalid("duplicate remote handle", 0)

@@ -125,7 +125,7 @@ fn write_body(
       writer.put(b)
     }
     Text(s) | Symbol(s) => {
-      let b = text_bytes(s)
+      let b = text_bytes(s, maximum=writer.maximum - writer.bytes.length() - 4)
       if code == 0xb3 {
         for byte in b {
           if byte.to_int() > 127 {
