@@ -144,3 +144,26 @@ test "heartbeat detach close and EOF complete without leaked pending deliveries"
     },
   )
 }
+
+///|
+test "session end handshakes without impersonating a connection close" {
+  let (a, b) = connected_pair()
+  a.end_session()
+  b.receive(a.drain())
+  a.receive(b.drain())
+  assert_false(a.is_closed())
+  assert_true(a.events()[0] is SessionEnded(_))
+  assert_true(b.events()[0] is SessionEnded(_))
+  assert_true(
+    try {
+      ignore(a.attach("late", true, "q"))
+      false
+    } catch {
+      _ => true
+    },
+  )
+  a.close()
+  b.receive(a.drain())
+  a.receive(b.drain())
+  assert_true(a.is_closed())
+}

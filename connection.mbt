@@ -23,6 +23,7 @@ pub fn Endpoint::receive(
   self.active()
   errdefer {
     self.failed = true
+    self.release_state()
     self.outbound.clear()
     self.queued_bytes = 0
   }
@@ -137,10 +138,13 @@ fn Endpoint::receive_session(
 ) -> Unit raise AmqpError {
   match perf.code {
     0x17 => {
-      self.queue(self.frame(0x17, []))
+      if !self.end_sent {
+        self.queue(self.frame(0x17, []))
+      }
+      self.end_sent = true
       self.remote_channel = None
-      self.closed = true
-      self.event(RemoteClosed(perf.field(0)))
+      self.release_state()
+      self.event(SessionEnded(perf.field(0)))
     }
     0x12 => self.receive_attach(perf)
     0x13 => self.receive_flow(perf)

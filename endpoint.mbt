@@ -18,6 +18,7 @@ pub enum Event {
   PeerSettled(UInt32)
   Aborted(UInt32, UInt32)
   Detached(UInt32)
+  SessionEnded(Value)
   RemoteClosed(Value)
 }
 
@@ -37,6 +38,7 @@ pub struct Endpoint {
   priv mut started : Bool
   priv mut remote_open : Bool
   priv mut begin_sent : Bool
+  priv mut end_sent : Bool
   priv mut remote_channel : Int32?
   priv mut peer_frame_max : Int32
   priv mut peer_handle_max : UInt32
@@ -75,6 +77,7 @@ pub fn Endpoint::new(
     started: false,
     remote_open: false,
     begin_sent: false,
+    end_sent: false,
     remote_channel: None,
     peer_frame_max: 512,
     peer_handle_max: 4294967295U,
@@ -99,6 +102,9 @@ fn Endpoint::session_active(self : Endpoint) -> Unit raise AmqpError {
   self.active()
   if self.closing {
     raise State("connection close pending")
+  }
+  if self.end_sent {
+    raise State("session end pending or complete")
   }
   if self.remote_channel is None {
     raise State("session not active")

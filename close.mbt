@@ -9,6 +9,13 @@ pub fn Endpoint::close(self : Endpoint) -> Unit raise AmqpError {
 }
 
 ///|
+pub fn Endpoint::end_session(self : Endpoint) -> Unit raise AmqpError {
+  self.session_active()
+  self.queue(self.frame(0x17, []))
+  self.end_sent = true
+}
+
+///|
 pub fn Endpoint::heartbeat(self : Endpoint) -> Unit raise AmqpError {
   self.active()
   if !self.remote_open || self.closing {
