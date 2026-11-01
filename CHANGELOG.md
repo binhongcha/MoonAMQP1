@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — 2026-11-01
+
+- 完整交付发送预检：Endpoint::plan_send
+- 显式消息到期判断：Message::expiry_status
+- 增加边界回归、可运行集成示例和CI步骤；未公开发布。
+
 ## 0.1.0 — local pre-release
 
 - Exact typed values, compound/array constructors, strict messages and incremental framing.

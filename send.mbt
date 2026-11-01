@@ -1,12 +1,12 @@
 ///|
 /// Encode all fragments and check every budget before mutating counters or queues.
-pub fn Endpoint::send(
+fn Endpoint::prepare_delivery(
   self : Endpoint,
   handle : UInt32,
   message : Message,
   tag : Bytes,
   settled~ : Bool = false,
-) -> UInt32 raise AmqpError {
+) -> (UInt32, Array[Bytes], Int32) raise AmqpError {
   self.session_active()
   let link = self.local_link(handle)
   if !link.sender || !link.ready || link.credit == 0U {
@@ -88,6 +88,51 @@ pub fn Endpoint::send(
     frames.length() > self.limits.max_items - self.outbound.length() {
     raise Limit("outbound queue; drain before send")
   }
+  (id, frames, total)
+}
+
+///|
+/// Encode and validate a delivery without consuming credit or modifying queues.
+pub fn Endpoint::plan_send(
+  self : Endpoint,
+  handle : UInt32,
+  message : Message,
+  tag : Bytes,
+  settled~ : Bool = false,
+) -> SendPlan raise AmqpError {
+  let (_, frames, bytes) = self.prepare_delivery(handle, message, tag, settled~)
+  {
+    frames: frames.length(),
+    wire_bytes: bytes,
+    link_credit: self.link_credit(handle),
+  }
+}
+
+///|
+pub(all) struct SendPlan {
+  frames : Int32
+  wire_bytes : Int32
+  link_credit : UInt32
+} derive(Debug)
+
+///|
+pub extend SendPlan with @debug.Debug::{to_repr}
+
+///|
+pub fn Endpoint::send(
+  self : Endpoint,
+  handle : UInt32,
+  message : Message,
+  tag : Bytes,
+  settled~ : Bool = false,
+) -> UInt32 raise AmqpError {
+  let (id, frames, total) = self.prepare_delivery(
+    handle,
+    message,
+    tag,
+    settled~,
+  )
+  let link = self.local_link(handle)
   // All operations below are non-failing after the preflight.
   self.window.sent(frames=frames.length())
   for frame in frames {

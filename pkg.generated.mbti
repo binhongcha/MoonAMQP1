@@ -65,6 +65,7 @@ pub fn Endpoint::is_failed(Self) -> Bool
 pub fn Endpoint::link_credit(Self, UInt32) -> UInt32 raise AmqpError
 pub fn Endpoint::new(String, channel? : Int32, window? : UInt32, limits? : Limits) -> Self raise AmqpError
 pub fn Endpoint::pending(Self) -> (Int32, Int32)
+pub fn Endpoint::plan_send(Self, UInt32, Message, Bytes, settled? : Bool) -> SendPlan raise AmqpError
 pub fn Endpoint::receive(Self, Bytes) -> Unit raise AmqpError
 pub fn Endpoint::refresh_windows(Self, UInt32, UInt32) -> Unit raise AmqpError
 pub fn Endpoint::send(Self, UInt32, Message, Bytes, settled? : Bool) -> UInt32 raise AmqpError
@@ -85,6 +86,12 @@ pub enum Event {
   SessionEnded(Value)
   RemoteClosed(Value)
 }
+
+pub(all) struct ExpiryStatus {
+  expired : Bool
+  remaining_milliseconds : UInt64?
+} derive(@debug.Debug)
+pub fn ExpiryStatus::to_repr(Self) -> @debug.Repr
 
 pub(all) struct Frame {
   channel : Int32
@@ -121,6 +128,7 @@ pub struct Message {
 }
 pub fn Message::data(Bytes, properties? : Array[(String, Value)], limits? : Limits) -> Self raise AmqpError
 pub fn Message::data_bytes(Self) -> Bytes raise AmqpError
+pub fn Message::expiry_status(Self, Int64, Int64) -> ExpiryStatus raise AmqpError
 pub fn Message::new(Array[Section], limits? : Limits) -> Self raise AmqpError
 pub fn Message::sections(Self) -> Array[Section]
 
@@ -150,6 +158,13 @@ pub(all) struct Section {
   descriptor : Int32
   body : Value
 }
+
+pub(all) struct SendPlan {
+  frames : Int32
+  wire_bytes : Int32
+  link_credit : UInt32
+} derive(@debug.Debug)
+pub fn SendPlan::to_repr(Self) -> @debug.Repr
 
 pub struct SessionWindow {
   // private fields
