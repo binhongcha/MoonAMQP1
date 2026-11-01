@@ -1,5 +1,5 @@
 import {
-  "local/moonamqp1" @amqp,
+  "binhongcha/moonamqp1" @amqp,
   "moonbitlang/core/env",
   "moonbitlang/async",
   "moonbitlang/async/fs",

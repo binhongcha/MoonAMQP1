@@ -2,7 +2,7 @@
 
 MoonBit 原生 **AMQP 1.0 类型、消息、增量分帧与有界协议状态核心**。同一实现用于 native、JavaScript、Wasm、Wasm-GC。核心不绑定 Rhea、C 消息库或网络运行时；原生示例宿主使用 async 处理文件和标准输入输出。
 
-当前为本地预发布：模块 `local/moonamqp1`、`private = true`，尚无公开远程和发布账号。不要执行 `moon add local/moonamqp1`；账号确认后再提供真实公开安装地址。
+模块：`binhongcha/moonamqp1@0.1.0`；[GitHub](https://github.com/binhongcha/MoonAMQP1) · [Mooncakes](https://mooncakes.io/docs/binhongcha/moonamqp1)。
 
 ## 生态定位与使用场景
 
@@ -16,7 +16,7 @@ AMQP 1.0 的类型、described value、会话窗口、单向 link、credit 与 s
 
 ## 安装与运行
 
-安装[官方 MoonBit 工具链](https://docs.moonbitlang.com/en/latest/download-and-install.html)。本机验证 `moonc 0.10.16`，高于要求的 0.10.14；依赖版本见 `moon.mod`。
+安装[官方 MoonBit 工具链](https://docs.moonbitlang.com/en/latest/download-and-install.html)。本机验证 `moonc 0.10.16`，符合赛事最低要求；CI 固定 compiler/core 0.10.16+b1a0e846e；依赖版本见 `moon.mod`。
 
 ```sh
 moon version --all
@@ -42,10 +42,16 @@ git diff --exit-code
 
 ## 最小使用样例
 
-示例包的 `moon.pkg` 导入：
+在已有 MoonBit 工程中安装：
+
+```sh
+moon add binhongcha/moonamqp1@0.1.0
+```
+
+使用方 `moon.pkg` 配置导入：
 
 ```moonbit
-import { "local/moonamqp1" @amqp, }
+import { "binhongcha/moonamqp1" @amqp, }
 pkgtype(kind: "executable")
 ```
 
@@ -117,9 +123,9 @@ CLI 拒绝覆盖已有输出。`peer` 使用二进制 stdin/stdout 承载 AMQP1.
 
 固定 Rhea3.0.5 为开发依赖：27组合法类型（含准确 UINT64、数组/描述类型）、消息 section 和帧流双向对照；真实 Rhea 客户端通过 stdio 与 MoonBit 双向收发5KB消息，协商512字节帧并验证分片、accepted、关闭。没有连接 RabbitMQ、Azure 或外部 broker，不能据此宣称这些服务已验证。Rhea 的宽松解码不作为恶意输入合法性的依据，截断/错类型/错状态/预算路径另行测试。
 
-CI 配置检查、构建、四后端测试、格式、接口、场景、独立互操作和包内容；本地执行记录不等于公开 GitHub CI 已通过。许可证为 Apache-2.0，来源与 AI 辅助范围见 [THIRD_PARTY.md](THIRD_PARTY.md)。规范参考：[Types](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-types-v1.0-os.html)、[Transport](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html)、[Messaging](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-messaging-v1.0-os.html)。
+[Linux/Windows CI](https://github.com/binhongcha/MoonAMQP1/actions) 覆盖检查、构建、四后端测试、格式、接口、五个场景、独立 Rhea 互操作和包内容；工程验证不等于正式赛事验收。申报书及审查/AI/汇总材料可在项目本地文件夹保存，由忽略及历史/包检查排除，不进入 Git 或发行包。许可证为 Apache-2.0，来源与 AI 辅助范围见 [THIRD_PARTY.md](THIRD_PARTY.md)。规范参考：[Types](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-types-v1.0-os.html)、[Transport](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html)、[Messaging](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-messaging-v1.0-os.html)。
 
 
 ## 十一月新增功能
 
-**完整交付发送预检**（`Endpoint::plan_send`）；**显式消息到期判断**（`Message::expiry_status`）。详见[功能、用途和边界](docs/NOVEMBER_FEATURES.md)，运行 `moon run examples/november --target native --deny-warn`。当前仍为本地未发布源码，不提供虚构安装地址。
+**完整交付发送预检**（`Endpoint::plan_send`）；**显式消息到期判断**（`Message::expiry_status`）。详见[功能、用途和边界](docs/NOVEMBER_FEATURES.md)，运行 `moon run examples/november --target native --deny-warn`。功能包含于0.1.0，安装方式见上文。

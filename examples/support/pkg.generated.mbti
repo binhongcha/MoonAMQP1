@@ -1,8 +1,8 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "local/moonamqp1/examples/support"
+package "binhongcha/moonamqp1/examples/support"
 
 import {
-  "local/moonamqp1",
+  "binhongcha/moonamqp1",
 }
 
 // Values

@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "local/moonamqp1"
+package "binhongcha/moonamqp1"
 
 import {
   "moonbitlang/core/debug",

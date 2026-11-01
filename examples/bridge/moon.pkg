@@ -1,6 +1,6 @@
 import {
-  "local/moonamqp1" @amqp,
-  "local/moonamqp1/examples/support",
+  "binhongcha/moonamqp1" @amqp,
+  "binhongcha/moonamqp1/examples/support",
 }
 
 pkgtype(kind: "executable")

@@ -7,7 +7,11 @@ permissions:
   contents: read
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,35 +24,52 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install official MoonBit
+      - uses: hustcer/setup-moonbit@v1
+        with:
+          version: '0.10.16+b1a0e846e'
+          core-version: '0.10.16+b1a0e846e'
+      - name: Windows compiler paths
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
-          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
-      - name: Strict check build and tests
+          ./tools/windows/build-shim.ps1
+          $shim = Join-Path $PWD '_build/windows-path-shims'
+          foreach ($tool in @('MOONC', 'MOONFMT', 'MOONINFO', 'MOONDOC')) {
+            $toolPath = Join-Path $shim "$($tool.ToLower()).exe"
+            "${tool}_OVERRIDE=$toolPath" >> $env:GITHUB_ENV
+          }
+          $env:MOONC_OVERRIDE = Join-Path $shim 'moonc.exe'
+          Push-Location (Join-Path $env:USERPROFILE '.moon/lib/core')
+          try {
+            moon bundle --all --warn-list -a
+            if ($LASTEXITCODE -ne 0) { throw 'Core bundle failed' }
+          } finally { Pop-Location }
+      - name: Resolve dependencies
         run: |
           moon version --all
+          moon update
+      - name: Check build test
+        run: |
           moon check --target all --deny-warn
           moon build --target all --deny-warn
           moon test --target all --deny-warn
-      - name: Formatting and generated public interfaces
+      - name: Format and API stability
         run: |
           moon fmt --check
           moon info
           git diff --exit-code
-      - name: Scenarios and sustained bounded workload
+      - name: Run application scenarios and scale workload
         run: |
           moon run examples/tasks --target native --deny-warn
           moon run examples/telemetry --target native --deny-warn
           moon run examples/bridge --target js --deny-warn
-          moon run examples/scale --target native --deny-warn
-      - name: Independent Rhea codec and live peer verification
+          moon run examples/scale --target native --release --deny-warn
+          moon run examples/november --target native --deny-warn
+      - name: Independent Rhea codec and live peer
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           npm run interop
-      - name: Local package contents and source hygiene
+      - name: Package and source hygiene
         run: |
           moon package
           python scripts/verify_repository.py
-
-      - name: November integration scenario
-        run: moon run examples/november --target native --deny-warn
