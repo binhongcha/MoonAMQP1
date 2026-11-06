@@ -129,3 +129,10 @@ CLI 拒绝覆盖已有输出。`peer` 使用二进制 stdin/stdout 承载 AMQP1.
 ## 十一月新增功能
 
 **完整交付发送预检**（`Endpoint::plan_send`）；**显式消息到期判断**（`Message::expiry_status`）。详见[功能、用途和边界](docs/NOVEMBER_FEATURES.md)，运行 `moon run examples/november --target native --deny-warn`。功能包含于0.1.0，安装方式见上文。
+
+
+## 本地开发增量（未发布）
+
+新增 **不可变应用属性编辑**、**端点与链路诊断快照**，用途、限制和复杂度见 [功能文档](docs/EXPANSION_20261106.md)。
+从本仓库源码运行 `moon run examples/expansion --target native --deny-warn`。
+本节 API 尚未包含在已发布的 0.1.0 中。

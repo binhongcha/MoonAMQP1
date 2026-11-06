@@ -54,6 +54,7 @@ pub fn Endpoint::attach(Self, String, Bool, String, handle? : UInt32) -> UInt32 
 pub fn Endpoint::begin(Self) -> Unit raise AmqpError
 pub fn Endpoint::close(Self) -> Unit raise AmqpError
 pub fn Endpoint::detach(Self, UInt32) -> Unit raise AmqpError
+pub fn Endpoint::diagnostics(Self) -> EndpointDiagnostic
 pub fn Endpoint::drain(Self) -> Bytes
 pub fn Endpoint::end_session(Self) -> Unit raise AmqpError
 pub fn Endpoint::events(Self) -> Array[Event]
@@ -71,6 +72,16 @@ pub fn Endpoint::refresh_windows(Self, UInt32, UInt32) -> Unit raise AmqpError
 pub fn Endpoint::send(Self, UInt32, Message, Bytes, settled? : Bool) -> UInt32 raise AmqpError
 pub fn Endpoint::session_positions(Self) -> (UInt32, UInt32)
 pub fn Endpoint::start(Self) -> Unit raise AmqpError
+
+pub(all) struct EndpointDiagnostic {
+  closed : Bool
+  failed : Bool
+  session_ready : Bool
+  queued_bytes : Int32
+  partial_bytes : Int32
+  queued_events : Int32
+  links : Array[LinkDiagnostic]
+}
 
 pub enum Event {
   RemoteOpen(String)
@@ -123,6 +134,20 @@ pub fn Limits::equal(Self, Self) -> Bool
 pub fn Limits::not_equal(Self, Self) -> Bool
 pub fn Limits::to_repr(Self) -> @debug.Repr
 
+pub(all) struct LinkDiagnostic {
+  name : String
+  address : String
+  handle : UInt32
+  remote_handle : UInt32?
+  sender : Bool
+  ready : Bool
+  closed : Bool
+  credit : UInt32
+  outgoing_unsettled : Int32
+  incoming_unsettled : Int32
+  receiving_fragment : Bool
+}
+
 pub struct Message {
   // private fields
 }
@@ -131,6 +156,7 @@ pub fn Message::data_bytes(Self) -> Bytes raise AmqpError
 pub fn Message::expiry_status(Self, Int64, Int64) -> ExpiryStatus raise AmqpError
 pub fn Message::new(Array[Section], limits? : Limits) -> Self raise AmqpError
 pub fn Message::sections(Self) -> Array[Section]
+pub fn Message::with_application_property(Self, String, Value?, limits? : Limits) -> Self raise AmqpError
 
 pub(all) enum Outcome {
   Accepted

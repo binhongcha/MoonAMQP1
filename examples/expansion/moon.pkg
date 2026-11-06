@@ -1,0 +1,6 @@
+import {
+  "binhongcha/moonamqp1" @amqp,
+  "binhongcha/moonamqp1/examples/support",
+}
+
+pkgtype(kind: "executable")

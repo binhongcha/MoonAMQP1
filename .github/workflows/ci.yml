@@ -65,6 +65,7 @@ jobs:
           moon run examples/bridge --target js --deny-warn
           moon run examples/scale --target native --release --deny-warn
           moon run examples/november --target native --deny-warn
+          moon run examples/expansion --target native --deny-warn
       - name: Independent Rhea codec and live peer
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
