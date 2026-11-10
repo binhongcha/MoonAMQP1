@@ -9,10 +9,13 @@ pub fn Endpoint::close(self : Endpoint) -> Unit raise AmqpError {
 }
 
 ///|
-pub fn Endpoint::end_session(self : Endpoint) -> Unit raise AmqpError {
-  self.session_active()
-  self.queue(self.frame(0x17, []))
-  self.end_sent = true
+pub fn Endpoint::end_session(
+  self : Endpoint,
+  channel~ : Int32 = self.channel,
+) -> Unit raise AmqpError {
+  let session = self.session_active(channel)
+  self.queue(self.frame(0x17, [], channel~))
+  session.end_sent = true
 }
 
 ///|
@@ -31,18 +34,32 @@ pub fn Endpoint::heartbeat(self : Endpoint) -> Unit raise AmqpError {
 
 ///|
 fn Endpoint::release_state(self : Endpoint) -> Unit {
-  for link in self.links {
+  for session in self.sessions.values() {
+    self.release_session(session)
+  }
+  self.sessions.clear()
+  self.remote_sessions.clear()
+}
+
+///|
+fn Endpoint::release_session(self : Endpoint, session : SessionState) -> Unit {
+  session.remote_channel = None
+  for link in session.links {
     link.closed = true
+    if link.partial is Some(partial) {
+      self.partial_bytes -= partial.bytes.length()
+    }
     link.partial = None
   }
-  self.partial_bytes = 0
-  self.incoming.clear()
-  self.outgoing.clear()
-  self.outgoing_tags.clear()
-  self.incoming_tags.clear()
+  session.incoming.clear()
+  session.outgoing.clear()
+  session.outgoing_tags.clear()
+  session.incoming_tags.clear()
+  session.incoming_first.clear()
+  session.reported.clear()
 }
 
 ///|
 pub fn Endpoint::session_positions(self : Endpoint) -> (UInt32, UInt32) {
-  self.window.positions()
+  self.primary.window.positions()
 }

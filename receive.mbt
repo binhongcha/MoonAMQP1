@@ -1,10 +1,11 @@
 ///|
 fn Endpoint::receive_transfer(
   self : Endpoint,
+  session : SessionState,
   perf : Performative,
   payload : Bytes,
 ) -> Unit raise AmqpError {
-  let link = self.remote_link(uint_field(perf, 0, 0U))
+  let link = session.remote_link(uint_field(perf, 0, 0U))
   if link.sender || !link.ready {
     raise State("transfer requires attached receiver")
   }
@@ -13,10 +14,6 @@ fn Endpoint::receive_transfer(
   }
   if bool_field(perf, 8, false) || !(perf.field(7) is Null) {
     raise Unsupported("resumed or stateful transfer")
-  }
-  match perf.field(6) {
-    Null | UByte(0) => ()
-    _ => raise Unsupported("receiver settle mode second")
   }
   let more = bool_field(perf, 5, false)
   let aborted = bool_field(perf, 9, false)
@@ -40,6 +37,17 @@ fn Endpoint::receive_transfer(
         Boolean(n) if n == partial.settled => ()
         _ => raise Unsupported("settlement change during fragmented delivery")
       }
+      if !partial.settled {
+        match perf.field(6) {
+          Null => ()
+          UByte(0) if partial.receiver_mode == First => ()
+          UByte(1) if partial.receiver_mode == Second => ()
+          _ =>
+            raise Unsupported(
+              "receiver settlement mode changed during delivery",
+            )
+        }
+      }
       partial
     }
     None => {
@@ -54,13 +62,13 @@ fn Endpoint::receive_transfer(
         Binary(b) => b
         _ => raise Invalid("first transfer requires delivery-tag", 0)
       }
-      match self.remote_next_delivery {
+      match session.remote_next_delivery {
         Some(expected) if id != expected =>
           raise Invalid("non-sequential session delivery-id", 0)
         _ => ()
       }
       let settled = bool_field(perf, 4, false)
-      if self.incoming.contains(id) {
+      if session.incoming.contains(id) {
         raise Invalid("delivery-id wrap collides with unsettled delivery", 0)
       }
       if (link.settle_mode == 0 && settled) ||
@@ -71,47 +79,62 @@ fn Endpoint::receive_transfer(
       }
       if !settled &&
         (
-          self.incoming.contains(id) ||
-          self.incoming.length() >= self.limits.max_pending
+          session.incoming.contains(id) ||
+          session.incoming.length() >= self.limits.max_pending
         ) {
         raise Limit("incoming unsettled deliveries")
       }
-      for (pending_id, pending_handle) in self.incoming {
+      for (pending_id, pending_handle) in session.incoming {
         if pending_handle == link.local_handle &&
-          self.incoming_tags[pending_id] == tag {
+          session.incoming_tags[pending_id] == tag {
           raise Invalid("duplicate unsettled delivery-tag on receiver link", 0)
+        }
+      }
+      let receiver_mode = if settled {
+        First
+      } else {
+        match perf.field(6) {
+          Null => link.receiver_mode
+          UByte(0) => First
+          UByte(1) if link.receiver_mode == Second => Second
+          _ =>
+            raise Invalid("transfer receiver settle mode exceeds link mode", 0)
         }
       }
       let partial : PartialDelivery = {
         id,
         tag,
         settled,
+        receiver_mode,
         bytes: [],
         fragments: 0,
       }
       link.credit -= 1U
       link.delivery_count += 1U
-      self.remote_next_delivery = Some(id + 1U)
+      session.remote_next_delivery = Some(id + 1U)
       link.partial = Some(partial)
       if !settled {
-        self.incoming[id] = link.local_handle
-        self.incoming_tags[id] = tag
+        session.incoming[id] = link.local_handle
+        session.incoming_tags[id] = tag
+        if receiver_mode == First {
+          session.incoming_first.add(id)
+        }
       }
       partial
     }
   }
-  self.window.received()
+  session.window.received()
   if partial.fragments >= self.limits.max_fragments ||
     payload.length() > self.limits.max_message_bytes - partial.bytes.length() {
     raise Limit("incoming fragmented message")
   }
   partial.fragments += 1
   if aborted {
-    self.incoming.remove(partial.id) |> ignore
-    self.incoming_tags.remove(partial.id) |> ignore
+    session.forget_incoming(partial.id)
     self.partial_bytes -= partial.bytes.length()
     link.partial = None
-    self.event(Aborted(link.local_handle, partial.id))
+    self.session_event(session, Aborted(link.local_handle, partial.id))
+    self.complete_received_drain(session, link)
     return
   }
   if payload.length() >
@@ -130,7 +153,8 @@ fn Endpoint::receive_transfer(
     link.partial = None
     self.partial_bytes -= partial.bytes.length()
     self.event_bytes += partial.bytes.length()
-    self.event(
+    self.session_event(
+      session,
       Received({
         handle: link.local_handle,
         id: partial.id,
@@ -139,5 +163,6 @@ fn Endpoint::receive_transfer(
         message,
       }),
     )
+    self.complete_received_drain(session, link)
   }
 }

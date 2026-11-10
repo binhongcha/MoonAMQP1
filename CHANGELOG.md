@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — 2026-11-10
+
+- 同一连接支持多 Session，独立映射 channel、窗口与 delivery ID。
+- 增加 Receiver Settle Mode Second 及 link drain 两种角色的状态处理。
+- 新增批量结果确认和会话流控快照，提供可执行复审示例。
+- 验证 Artemis 真实队列双向传输及 Rhea First／Second，详见 docs/PROTOCOL_PROFILE.md。
+
 ## Unreleased — 2026-11-06
 
 - 不可变应用属性编辑。

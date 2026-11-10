@@ -2,7 +2,7 @@
 
 MoonBit 原生 **AMQP 1.0 类型、消息、增量分帧与有界协议状态核心**。同一实现用于 native、JavaScript、Wasm、Wasm-GC。核心不绑定 Rhea、C 消息库或网络运行时；原生示例宿主使用 async 处理文件和标准输入输出。
 
-模块：`binhongcha/moonamqp1@0.1.0`；[GitHub](https://github.com/binhongcha/MoonAMQP1) · [Mooncakes](https://mooncakes.io/docs/binhongcha/moonamqp1)。
+已发布模块为 `binhongcha/moonamqp1@0.1.0`，本分支为 0.2.0 复审源码。[GitHub](https://github.com/binhongcha/MoonAMQP1) · [Mooncakes](https://mooncakes.io/docs/binhongcha/moonamqp1)。
 
 ## 生态定位与使用场景
 
@@ -71,14 +71,16 @@ fn main raise {
 
 ## 兼容范围
 
+复审分支的架构、三项协议语义、功能复杂度及互操作复现见 [协议范围与复审验证](docs/PROTOCOL_PROFILE.md)。安装链接指向已发布的 0.1.0，复审功能从本仓库源码运行。
+
 | 层次 | 支持 | 当前边界 |
 | --- | --- | --- |
 | 值 | 全部原始域、十进制原始字节、精确整数/时间戳、list/map、typed array、数字或符号 descriptor | 十进制不提供算术；数组公共 constructor 最多一层 descriptor；编码采用全宽 canonical 形式 |
 | 文本 | 严格 UTF-8、Unicode scalar、ASCII symbol，保留 BOM 和 ASCII NUL | 拒绝非法 UTF-8 与未配对 UTF-16 代理项，不静默替换 |
 | 帧 | AMQP1.0 header、9 类 transport performative、扩展头、空 heartbeat、任意 feed 分块 | SASL frame/type、TLS header、未知额外 performative 字段明确拒绝 |
 | 消息 | header、注解、properties、application-properties、data/sequence/value body、footer | 检查顺序、唯一性、互斥及字段域；未知 section 不静默跳过 |
-| 状态 | 一个 connection、一个 session、多 link、本地/远端 channel 与 handle 独立映射 | 不支持 crossed begin、多 session、session/link 恢复、动态/持久 terminus、过滤及能力协商 |
-| 收发 | link credit、session window、自动发送分片、接收组装/aborted、三种 sender settle mode、receiver first | 不支持 receiver second、drain、resume、事务、非零 message-format、分片中改变 settlement |
+| 状态 | 一个 connection 内多个 session、多 link、独立 channel 和 handle 映射 | 最多 64 个本地会话，默认 16；暂不提供 session/link 恢复、动态/持久 terminus、过滤及能力协商 |
+| 收发 | link credit、session window、自动发送分片、接收组装/aborted、三种 sender settle mode、receiver First／Second、link drain | 暂不提供 resume、事务、非零 message-format、分片中改变 settlement |
 | 确认 | accepted、rejected（保留无 error 的拒绝）、released、modified 的两个布尔标志、范围 disposition | received/事务状态、modified 附加注解明确不支持；确认不等同业务 exactly-once |
 | 宿主 | bytes/commands → bytes/events；原生 CLI 文件及 stdio 示例 | 无内置 broker、TCP 客户端、SASL、TLS、持久 outbox、自动重连、定时器或自动重试 |
 
@@ -90,7 +92,7 @@ fn main raise {
 
 1. 创建 `Endpoint`；调用 `start()`，将 `drain()` 字节交给宿主的可靠有序传输。
 2. 每次输入调用 `receive(bytes)`，处理 `events()`，再发送 `drain()`。被动端收到协议 header 会自动响应 open。
-3. 主动一方在 RemoteOpen 后调用 `begin()`，另一方自动接受单 session；收到 SessionReady 后 attach sender/receiver。
+3. 主动一方在 RemoteOpen 后调用 `begin()` 或 `begin(channel=…)`。对端分配自己的本地 channel，收到 `SessionReady` 后 attach sender/receiver。其他会话的命令传入对应的本地 channel。
 4. 接收 link ready 后调用 `grant(handle, credit)`。这设置以当前 delivery-count 为基准的新额度，不是累加旧额度。
 5. sender 使用本地 handle 调用 `send(message, tag)`；收到完整 Received 后按业务结果 `acknowledge(id, outcome)`。tag 最多 32 字节，同一 link 的在途未确认标签必须唯一；标签不提供跨重连幂等性。
 6. 显式 `refresh_windows(incoming, outgoing)` 重新通告宿主可承担的会话窗口；对端 flow 会更新远端容量。它与 grant link credit 是两个独立操作。
@@ -104,7 +106,7 @@ fn main raise {
 
 `Limits` 默认限制：单值/输入 feed/逻辑聚合接收载荷/输出队列 16MiB、单帧 1MiB、单消息 16MiB、总值节点 65536、嵌套32层、link256、事件/各方向未确认256、每消息4096片。可调整，深度上限128；本地 session window 和 link credit 限于不产生 serial 歧义的半范围。接受合法 UINT_MAX 远端 session 容量；不会据其大小直接分配内存。
 
-增量分帧按字节追加，输入总长 N 时 O(N)，只保留一个未完成帧；消息分片按字节组装 O(M)。嵌套容器编码临时缓冲与 map key 规范化的成本至多 O(N·D)，D 为受限深度。handle 查找 O(L)，范围确认只扫描 O(P) 个已知 pending ID，排序最坏 O(P log P)，不会按对端声明的巨大 ID 区间逐个遍历。
+增量分帧按字节追加，输入总长 N 时 O(N)，只保留一个未完成帧；消息分片按字节组装 O(M)。嵌套容器编码临时缓冲与 map key 规范化的成本至多 O(N·D)，D 为受限深度。handle 查找 O(L)。收到范围确认时扫描已有的 pending ID 与相关会话的链路，处理最坏 O(P log P + L)，不按对端声明的区间逐个遍历。
 
 预算限制的是逻辑字节和节点数量，不是精确进程 RSS：编码/解码副本、JS 对象、Message 树与宿主已取走的事件仍有开销。核心保留输出字节；`drain()` 不代表网络已可靠发送。`examples/scale` 验证2048条、6144帧、64条有界批次的持续正确性，不是跨语言速度基准。
 
@@ -121,9 +123,9 @@ moon run cmd/main --target native -- frames INPUT.bin NEW_OUTPUT.bin
 
 CLI 拒绝覆盖已有输出。`peer` 使用二进制 stdin/stdout 承载 AMQP1.0：为接收 link 授予32个 credit 并 accepted；为获额度的发送 link 发送一次5KB原创测试消息。它是互操作示例宿主，不是生产服务。
 
-固定 Rhea3.0.5 为开发依赖：27组合法类型（含准确 UINT64、数组/描述类型）、消息 section 和帧流双向对照；真实 Rhea 客户端通过 stdio 与 MoonBit 双向收发5KB消息，协商512字节帧并验证分片、accepted、关闭。没有连接 RabbitMQ、Azure 或外部 broker，不能据此宣称这些服务已验证。Rhea 的宽松解码不作为恶意输入合法性的依据，截断/错类型/错状态/预算路径另行测试。
+固定 Rhea3.0.5 为开发依赖：27组合法类型（含准确 UINT64、数组/描述类型）、消息 section 和帧流双向对照；真实 Rhea 客户端通过 stdio 与 MoonBit 双向收发5KB消息，协商512字节帧并验证分片、accepted、关闭。复审同时验证 Rhea 的 First、Second 握手。真实 Broker 测试单独走 Artemis 2.44.0 的两条队列，并复查接收确认后无重投。Rhea 的宽松解码不作为恶意输入合法性的依据，截断/错类型/错状态/预算路径另行测试。
 
-[Linux/Windows CI](https://github.com/binhongcha/MoonAMQP1/actions) 覆盖检查、构建、四后端测试、格式、接口、五个场景、独立 Rhea 互操作和包内容；工程验证不等于正式赛事验收。申报书及审查/AI/汇总材料可在项目本地文件夹保存，由忽略及历史/包检查排除，不进入 Git 或发行包。许可证为 Apache-2.0，来源与 AI 辅助范围见 [THIRD_PARTY.md](THIRD_PARTY.md)。规范参考：[Types](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-types-v1.0-os.html)、[Transport](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html)、[Messaging](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-messaging-v1.0-os.html)。
+[Linux/Windows CI](https://github.com/binhongcha/MoonAMQP1/actions) 覆盖检查、构建、四后端测试、格式、接口、业务示例、独立 Rhea 互操作、Linux 下的 Artemis 双向队列测试和包内容；工程验证不等于正式赛事验收。申报书及审查/AI/汇总材料可在项目本地文件夹保存，由忽略及历史/包检查排除，不进入 Git 或发行包。许可证为 Apache-2.0，来源与 AI 辅助范围见 [THIRD_PARTY.md](THIRD_PARTY.md)。规范参考：[Types](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-types-v1.0-os.html)、[Transport](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html)、[Messaging](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-messaging-v1.0-os.html)。
 
 
 ## 十一月新增功能
@@ -136,3 +138,10 @@ CLI 拒绝覆盖已有输出。`peer` 使用二进制 stdin/stdout 承载 AMQP1.
 新增 **不可变应用属性编辑**、**端点与链路诊断快照**，用途、限制和复杂度见 [功能文档](docs/EXPANSION_20261106.md)。
 从本仓库源码运行 `moon run examples/expansion --target native --deny-warn`。
 本节 API 尚未包含在已发布的 0.1.0 中。
+
+
+## 十一月复审增量
+
+- 支持多 Session、Receiver Settle Mode Second 和 link drain。次要会话事件携带本地 channel，默认会话沿用原事件形状。
+- 新增批量结果确认 `Endpoint::acknowledge_range` 和会话流控快照 `Endpoint::session_diagnostics`。运行 `moon run examples/review --target native --deny-warn`。
+- 通过 Artemis 2.44.0 真实队列验证双向收发、分片、First 确认和两种 drain 场景，分别为有一条待交付消息和空队列。通过独立 Rhea 3.0.5 对端验证 Second。复现命令和用例边界见 [协议范围](docs/PROTOCOL_PROFILE.md)。

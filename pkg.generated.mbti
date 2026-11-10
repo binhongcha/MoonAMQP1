@@ -49,27 +49,30 @@ pub(all) struct Delivery {
 pub struct Endpoint {
   // private fields
 }
-pub fn Endpoint::acknowledge(Self, UInt32, Outcome) -> Unit raise AmqpError
-pub fn Endpoint::attach(Self, String, Bool, String, handle? : UInt32) -> UInt32 raise AmqpError
-pub fn Endpoint::begin(Self) -> Unit raise AmqpError
+pub fn Endpoint::acknowledge(Self, UInt32, Outcome, channel? : Int32) -> Unit raise AmqpError
+pub fn Endpoint::acknowledge_range(Self, UInt32, UInt32, Outcome, channel? : Int32) -> Unit raise AmqpError
+pub fn Endpoint::attach(Self, String, Bool, String, handle? : UInt32, receiver_mode? : ReceiverSettleMode, channel? : Int32) -> UInt32 raise AmqpError
+pub fn Endpoint::begin(Self, channel? : Int32) -> Unit raise AmqpError
 pub fn Endpoint::close(Self) -> Unit raise AmqpError
-pub fn Endpoint::detach(Self, UInt32) -> Unit raise AmqpError
+pub fn Endpoint::complete_drain(Self, UInt32, channel? : Int32) -> Unit raise AmqpError
+pub fn Endpoint::detach(Self, channel? : Int32, UInt32) -> Unit raise AmqpError
 pub fn Endpoint::diagnostics(Self) -> EndpointDiagnostic
 pub fn Endpoint::drain(Self) -> Bytes
-pub fn Endpoint::end_session(Self) -> Unit raise AmqpError
+pub fn Endpoint::end_session(Self, channel? : Int32) -> Unit raise AmqpError
 pub fn Endpoint::events(Self) -> Array[Event]
 pub fn Endpoint::finish_input(Self) -> Unit raise AmqpError
-pub fn Endpoint::grant(Self, UInt32, UInt32) -> Unit raise AmqpError
+pub fn Endpoint::grant(Self, channel? : Int32, UInt32, UInt32, drain? : Bool) -> Unit raise AmqpError
 pub fn Endpoint::heartbeat(Self) -> Unit raise AmqpError
 pub fn Endpoint::is_closed(Self) -> Bool
 pub fn Endpoint::is_failed(Self) -> Bool
-pub fn Endpoint::link_credit(Self, UInt32) -> UInt32 raise AmqpError
-pub fn Endpoint::new(String, channel? : Int32, window? : UInt32, limits? : Limits) -> Self raise AmqpError
+pub fn Endpoint::link_credit(Self, channel? : Int32, UInt32) -> UInt32 raise AmqpError
+pub fn Endpoint::new(String, channel? : Int32, window? : UInt32, max_sessions? : Int32, limits? : Limits) -> Self raise AmqpError
 pub fn Endpoint::pending(Self) -> (Int32, Int32)
-pub fn Endpoint::plan_send(Self, UInt32, Message, Bytes, settled? : Bool) -> SendPlan raise AmqpError
+pub fn Endpoint::plan_send(Self, channel? : Int32, UInt32, Message, Bytes, settled? : Bool) -> SendPlan raise AmqpError
 pub fn Endpoint::receive(Self, Bytes) -> Unit raise AmqpError
-pub fn Endpoint::refresh_windows(Self, UInt32, UInt32) -> Unit raise AmqpError
-pub fn Endpoint::send(Self, UInt32, Message, Bytes, settled? : Bool) -> UInt32 raise AmqpError
+pub fn Endpoint::refresh_windows(Self, channel? : Int32, UInt32, UInt32) -> Unit raise AmqpError
+pub fn Endpoint::send(Self, channel? : Int32, UInt32, Message, Bytes, settled? : Bool) -> UInt32 raise AmqpError
+pub fn Endpoint::session_diagnostics(Self) -> Array[SessionDiagnostic]
 pub fn Endpoint::session_positions(Self) -> (UInt32, UInt32)
 pub fn Endpoint::start(Self) -> Unit raise AmqpError
 
@@ -96,6 +99,9 @@ pub enum Event {
   Detached(UInt32)
   SessionEnded(Value)
   RemoteClosed(Value)
+  SessionEvent(Int32, Event)
+  DrainRequested(UInt32, UInt32)
+  DrainCompleted(UInt32, UInt32)
 }
 
 pub(all) struct ExpiryStatus {
@@ -180,6 +186,13 @@ pub fn Performative::from_value(Value, limits? : Limits) -> Self raise AmqpError
 pub fn Performative::new(Int32, Array[Value], limits? : Limits) -> Self raise AmqpError
 pub fn Performative::value(Self) -> Value
 
+pub(all) enum ReceiverSettleMode {
+  First
+  Second
+} derive(Eq)
+pub fn ReceiverSettleMode::equal(Self, Self) -> Bool
+pub fn ReceiverSettleMode::not_equal(Self, Self) -> Bool
+
 pub(all) struct Section {
   descriptor : Int32
   body : Value
@@ -191,6 +204,21 @@ pub(all) struct SendPlan {
   link_credit : UInt32
 } derive(@debug.Debug)
 pub fn SendPlan::to_repr(Self) -> @debug.Repr
+
+pub(all) struct SessionDiagnostic {
+  channel : Int32
+  remote_channel : Int32?
+  ending : Bool
+  next_incoming : UInt32
+  next_outgoing : UInt32
+  incoming_window : UInt32
+  outgoing_window : UInt32
+  peer_incoming_window : UInt32
+  outgoing_unsettled : Int32
+  incoming_unsettled : Int32
+  awaiting_sender_confirmation : Int32
+  links : Array[LinkDiagnostic]
+}
 
 pub struct SessionWindow {
   // private fields

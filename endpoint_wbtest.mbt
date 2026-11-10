@@ -212,7 +212,7 @@ test "aggregate completed-message event bytes are bounded until host drains even
 test "negotiated sender settle mode is enforced before outbound mutation" {
   let (a, b) = connected_pair()
   let (handle, _) = ready_sender(a, b, "settled-only")
-  a.local_link(handle).settle_mode = 1
+  a.primary.local_link(handle).settle_mode = 1
   let before = a.session_positions()
   assert_true(
     try {

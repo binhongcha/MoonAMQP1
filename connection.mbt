@@ -1,18 +1,101 @@
 ///|
-pub fn Endpoint::begin(self : Endpoint) -> Unit raise AmqpError {
+/// Start a session on the selected local channel after exchanging Open.
+pub fn Endpoint::begin(
+  self : Endpoint,
+  channel~ : Int32 = self.channel,
+) -> Unit raise AmqpError {
   self.active()
-  if !self.remote_open || self.begin_sent {
-    raise State("open must precede one session begin")
+  if !self.remote_open || self.closing {
+    raise State("session begin requires open connection")
   }
-  if self.channel > self.peer_channel_max {
-    raise State("local channel exceeds peer channel-max")
+  let session = self.new_session(channel)
+  self.queue(self.begin_frame(session, Null))
+  self.register_session(session)
+}
+
+///|
+fn Endpoint::new_session(
+  self : Endpoint,
+  channel : Int32,
+) -> SessionState raise AmqpError {
+  require_range(channel, 0, self.peer_channel_max)
+  if self.sessions.contains(channel) {
+    raise State("local session channel already mapped")
   }
-  let (_, next_out) = self.window.positions()
-  let (incoming, outgoing, _) = self.window.remaining()
-  self.queue(
-    self.frame(0x11, [Null, UInt(next_out), UInt(incoming), UInt(outgoing)]),
+  if self.sessions.length() >= self.max_sessions {
+    raise Limit("session count")
+  }
+  session_state(channel, self.default_window)
+}
+
+///|
+fn Endpoint::register_session(self : Endpoint, session : SessionState) -> Unit {
+  self.sessions[session.channel] = session
+  if session.channel == self.channel {
+    self.primary = session
+  }
+}
+
+///|
+fn Endpoint::begin_frame(
+  self : Endpoint,
+  session : SessionState,
+  remote : Value,
+) -> Bytes raise AmqpError {
+  let (incoming, outgoing, _) = session.window.remaining()
+  self.frame(
+    0x11,
+    [remote, UInt(session.window.next_out), UInt(incoming), UInt(outgoing)],
+    channel=session.channel,
   )
-  self.begin_sent = true
+}
+
+///|
+fn Endpoint::receive_begin(
+  self : Endpoint,
+  remote_channel : Int32,
+  perf : Performative,
+) -> Unit raise AmqpError {
+  if self.remote_sessions.contains(remote_channel) {
+    raise Invalid("duplicate remote session channel", 0)
+  }
+  let session = match perf.field(0) {
+    UShort(channel) =>
+      match self.sessions.get(channel) {
+        Some(session) if session.remote_channel is None => session
+        _ =>
+          raise Invalid(
+            "remote-channel does not map a pending local session", 0,
+          )
+      }
+    Null => {
+      let preferred = self.channel
+      let channel = if preferred <= self.peer_channel_max &&
+        !self.sessions.contains(preferred) {
+        preferred
+      } else {
+        let mut free = 0
+        while free <= self.peer_channel_max && self.sessions.contains(free) {
+          free += 1
+        }
+        free
+      }
+      let session = self.new_session(channel)
+      self.queue(self.begin_frame(session, UShort(remote_channel)))
+      self.register_session(session)
+      session
+    }
+    _ => raise Invalid("remote-channel", 0)
+  }
+  session.window.establish(
+    uint_field(perf, 1, 0U),
+    uint_field(perf, 2, 0U),
+    uint_field(perf, 3, 0U),
+  )
+  session.remote_channel = Some(remote_channel)
+  session.peer_handle_max = uint_field(perf, 4, 4294967295U)
+  self.remote_sessions[remote_channel] = session
+  self.session_event(session, SessionReady)
 }
 
 ///|
@@ -21,14 +104,7 @@ pub fn Endpoint::receive(
   bytes : Bytes,
 ) -> Unit raise AmqpError {
   self.active()
-  errdefer {
-    self.failed = true
-    self.release_state()
-    self.events.clear()
-    self.event_bytes = 0
-    self.outbound.clear()
-    self.queued_bytes = 0
-  }
+  errdefer self.fail_connection()
   let items = self.stream.feed(bytes)
   for item in items {
     match item {
@@ -51,7 +127,8 @@ fn Endpoint::receive_frame(
     Some(perf) => perf
   }
   if self.closing && perf.code != 0x18 {
-    raise State("non-close frame while closing")
+    // The peer may have sent this frame before it received our Close.
+    return
   }
   if perf.code == 0x10 {
     if frame.channel != 0 || self.remote_open {
@@ -81,37 +158,7 @@ fn Endpoint::receive_frame(
     raise State("remote open required")
   }
   if perf.code == 0x11 {
-    if self.remote_channel is Some(_) {
-      raise Unsupported("multiple sessions")
-    }
-    let responding = match perf.field(0) {
-      Null => false
-      UShort(channel) if channel == self.channel && self.begin_sent => true
-      _ => raise Invalid("remote-channel does not map local session", 0)
-    }
-    if !responding && self.begin_sent {
-      raise Unsupported("crossed begin requires multiple-session host")
-    }
-    self.window.establish(
-      uint_field(perf, 1, 0U),
-      uint_field(perf, 2, 0U),
-      uint_field(perf, 3, 0U),
-    )
-    self.remote_channel = Some(frame.channel)
-    self.peer_handle_max = uint_field(perf, 4, 4294967295U)
-    if !responding {
-      let (incoming, outgoing, _) = self.window.remaining()
-      self.queue(
-        self.frame(0x11, [
-          UShort(frame.channel),
-          UInt(self.window.next_out),
-          UInt(incoming),
-          UInt(outgoing),
-        ]),
-      )
-      self.begin_sent = true
-    }
-    self.event(SessionReady)
+    self.receive_begin(frame.channel, perf)
     return
   }
   if perf.code == 0x18 {
@@ -126,42 +173,47 @@ fn Endpoint::receive_frame(
     self.event(RemoteClosed(perf.field(0)))
     return
   }
-  if self.remote_channel != Some(frame.channel) {
-    raise Invalid("unknown remote session channel", 0)
+  let session = match self.remote_sessions.get(frame.channel) {
+    Some(session) => session
+    None => raise Invalid("unknown remote session channel", 0)
   }
-  self.receive_session(perf, frame.payload)
+  self.receive_session(session, perf, frame.payload)
 }
 
 ///|
 fn Endpoint::receive_session(
   self : Endpoint,
+  session : SessionState,
   perf : Performative,
   payload : Bytes,
 ) -> Unit raise AmqpError {
+  if session.end_sent && perf.code != 0x17 {
+    // Frames already in flight before the peer processes End are discarded.
+    return
+  }
   match perf.code {
     0x17 => {
-      if !self.end_sent {
-        self.queue(self.frame(0x17, []))
+      if !session.end_sent {
+        self.queue(self.frame(0x17, [], channel=session.channel))
       }
-      self.end_sent = true
-      self.remote_channel = None
-      self.release_state()
-      self.event(SessionEnded(perf.field(0)))
+      session.end_sent = true
+      self.remote_sessions.remove(session.remote_channel.unwrap()) |> ignore
+      self.sessions.remove(session.channel) |> ignore
+      self.release_session(session)
+      self.session_event(session, SessionEnded(perf.field(0)))
     }
-    0x12 => self.receive_attach(perf)
-    0x13 => self.receive_flow(perf)
-    0x14 => self.receive_transfer(perf, payload)
-    0x15 => self.receive_disposition(perf)
-    0x16 => self.receive_detach(perf)
+    0x12 => self.receive_attach(session, perf)
+    0x13 => self.receive_flow(session, perf)
+    0x14 => self.receive_transfer(session, perf, payload)
+    0x15 => self.receive_disposition(session, perf)
+    0x16 => self.receive_detach(session, perf)
     _ => raise Unsupported("session performative not yet handled")
   }
 }
 
 ///|
 pub fn Endpoint::finish_input(self : Endpoint) -> Unit raise AmqpError {
-  errdefer {
-    self.failed = true
-  }
+  errdefer self.fail_connection()
   self.stream.finish()
   if !self.closed {
     raise State("transport EOF without protocol close")
@@ -178,7 +230,17 @@ test "connection opens and maps distinct local and remote session channels" {
   a.begin()
   b.receive(a.drain())
   a.receive(b.drain())
-  assert_eq(a.remote_channel, Some(17))
-  assert_eq(b.remote_channel, Some(3))
+  assert_eq(a.primary.remote_channel, Some(17))
+  assert_eq(b.primary.remote_channel, Some(3))
   assert_eq(a.events().length(), 2)
+}
+
+///|
+fn Endpoint::fail_connection(self : Endpoint) -> Unit {
+  self.failed = true
+  self.release_state()
+  self.events.clear()
+  self.event_bytes = 0
+  self.outbound.clear()
+  self.queued_bytes = 0
 }

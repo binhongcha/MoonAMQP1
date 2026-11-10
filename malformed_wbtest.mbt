@@ -170,7 +170,7 @@ test "unknown channel handle and role do not enter valid receive states" {
 test "remote sender cannot start a delivery without granted link credit" {
   let (a, b) = connected_pair()
   let (_, receiver) = ready_sender(a, b, "no-credit", credit=0U)
-  let remote = b.local_link(receiver).remote_handle.unwrap()
+  let remote = b.primary.local_link(receiver).remote_handle.unwrap()
   let bytes = peer_wire(
     a,
     0x14,
@@ -318,7 +318,7 @@ test "fragment count budget stops many zero-length continuations" {
 }
 
 ///|
-test "unsupported resume transactions and receiver-second fail explicitly" {
+test "unsupported resume and transactions fail explicitly" {
   let (a, b) = connected_pair()
   let (handle, _) = ready_sender(a, b, "resume")
   assert_true(
@@ -344,23 +344,6 @@ test "unsupported resume transactions and receiver-second fail explicitly" {
   assert_true(
     try {
       ignore(Outcome::from_value(Described(ULong(0x33UL), List([]))))
-      false
-    } catch {
-      _ => true
-    },
-  )
-  let link = link_state("second", 0U, true, "q")
-  assert_true(
-    try {
-      link.attach(
-        Performative::new(0x12, [
-          Text("second"),
-          UInt(1U),
-          Boolean(true),
-          UByte(2),
-          UByte(1),
-        ]),
-      )
       false
     } catch {
       _ => true
@@ -461,7 +444,7 @@ test "wrapped delivery IDs cannot alias an old pending delivery even if pre-sett
   )
   ignore(b.events())
   // Model a full serial cycle while the original unsettled ID survives.
-  b.remote_next_delivery = Some(0U)
+  b.primary.remote_next_delivery = Some(0U)
   assert_true(
     try {
       b.receive(

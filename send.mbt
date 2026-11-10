@@ -2,13 +2,13 @@
 /// Encode all fragments and check every budget before mutating counters or queues.
 fn Endpoint::prepare_delivery(
   self : Endpoint,
+  session : SessionState,
   handle : UInt32,
   message : Message,
   tag : Bytes,
   settled~ : Bool = false,
 ) -> (UInt32, Array[Bytes], Int32) raise AmqpError {
-  self.session_active()
-  let link = self.local_link(handle)
+  let link = session.local_link(handle)
   if !link.sender || !link.ready || link.credit == 0U {
     raise State("sender not ready or link credit exhausted")
   }
@@ -20,11 +20,11 @@ fn Endpoint::prepare_delivery(
       "delivery settlement disagrees with negotiated sender settle mode",
     )
   }
-  if !settled && self.outgoing.length() >= self.limits.max_pending {
+  if !settled && session.outgoing.length() >= self.limits.max_pending {
     raise Limit("outgoing unsettled deliveries")
   }
-  for (pending_id, pending_handle) in self.outgoing {
-    if pending_handle == handle && self.outgoing_tags[pending_id] == tag {
+  for (pending_id, pending_handle) in session.outgoing {
+    if pending_handle == handle && session.outgoing_tags[pending_id] == tag {
       raise State("delivery-tag already unsettled on this link")
     }
   }
@@ -33,8 +33,8 @@ fn Endpoint::prepare_delivery(
     bytes.length().to_uint64() > link.peer_max_message {
     raise Limit("peer max-message-size")
   }
-  let id = self.next_delivery
-  if self.outgoing.contains(id) {
+  let id = session.next_delivery
+  if session.outgoing.contains(id) {
     raise State("delivery ID wrap collides with unsettled delivery")
   }
   let frames : Array[Bytes] = []
@@ -54,7 +54,7 @@ fn Endpoint::prepare_delivery(
     } else {
       [UInt(handle), Null, Null, Null, Null, Boolean(true)]
     }
-    let overhead = self.frame(0x14, fields).length()
+    let overhead = self.frame(0x14, fields, channel=session.channel).length()
     let capacity = minimum(self.limits.max_frame_bytes, self.peer_frame_max) -
       overhead
     if capacity <= 0 {
@@ -66,6 +66,7 @@ fn Endpoint::prepare_delivery(
     let frame = self.frame(
       0x14,
       fields,
+      channel=session.channel,
       payload=bytes[offset:offset + count].to_owned(),
     )
     total = checked_add(total, frame.length())
@@ -79,7 +80,7 @@ fn Endpoint::prepare_delivery(
       break
     }
   }
-  if !self.window.can_send(frames=frames.length()) {
+  if !session.window.can_send(frames=frames.length()) {
     raise State(
       "session window cannot fit complete delivery; refresh flow before retry",
     )
@@ -95,16 +96,24 @@ fn Endpoint::prepare_delivery(
 /// Encode and validate a delivery without consuming credit or modifying queues.
 pub fn Endpoint::plan_send(
   self : Endpoint,
+  channel~ : Int32 = self.channel,
   handle : UInt32,
   message : Message,
   tag : Bytes,
   settled~ : Bool = false,
 ) -> SendPlan raise AmqpError {
-  let (_, frames, bytes) = self.prepare_delivery(handle, message, tag, settled~)
+  let session = self.session_active(channel)
+  let (_, frames, bytes) = self.prepare_delivery(
+    session,
+    handle,
+    message,
+    tag,
+    settled~,
+  )
   {
     frames: frames.length(),
     wire_bytes: bytes,
-    link_credit: self.link_credit(handle),
+    link_credit: session.local_link(handle).credit,
   }
 }
 
@@ -121,20 +130,23 @@ pub extend SendPlan with @debug.Debug::{to_repr}
 ///|
 pub fn Endpoint::send(
   self : Endpoint,
+  channel~ : Int32 = self.channel,
   handle : UInt32,
   message : Message,
   tag : Bytes,
   settled~ : Bool = false,
 ) -> UInt32 raise AmqpError {
+  let session = self.session_active(channel)
   let (id, frames, total) = self.prepare_delivery(
+    session,
     handle,
     message,
     tag,
     settled~,
   )
-  let link = self.local_link(handle)
+  let link = session.local_link(handle)
   // All operations below are non-failing after the preflight.
-  self.window.sent(frames=frames.length())
+  session.window.sent(frames=frames.length())
   for frame in frames {
     self.outbound.push(frame)
   }
@@ -142,14 +154,14 @@ pub fn Endpoint::send(
   link.credit -= 1U
   link.delivery_count += 1U
   if !settled {
-    self.outgoing[id] = handle
-    self.outgoing_tags[id] = tag
+    session.outgoing[id] = handle
+    session.outgoing_tags[id] = tag
   }
-  self.next_delivery += 1U
+  session.next_delivery += 1U
   id
 }
 
 ///|
 pub fn Endpoint::pending(self : Endpoint) -> (Int32, Int32) {
-  (self.outgoing.length(), self.incoming.length())
+  (self.primary.outgoing.length(), self.primary.incoming.length())
 }

@@ -50,13 +50,17 @@ async fn peer() -> Unit {
 ///|
 async fn run() -> Unit {
   let args = @env.args()
+  if args.length() == 5 && args[1] == "broker" {
+    broker(args[2], args[3], args[4])
+    return
+  }
   if args.length() == 2 && args[1] == "peer" {
     peer()
     return
   }
   if args.length() != 4 {
     raise Failure(
-      "usage: moonamqp1 value|message|frames INPUT NEW_OUTPUT | peer",
+      "usage: moonamqp1 value|message|frames INPUT NEW_OUTPUT | peer | broker OUT_QUEUE IN_QUEUE TOKEN",
     )
   }
   if @fs.file_size(args[2][:]) >

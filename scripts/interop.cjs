@@ -98,26 +98,44 @@ function codecs() {
   assert.equal(frameCount,5);
   console.log(`Rhea 3.0.5: ${vectors.length} typed values, message sections and frame streams passed bidirectional checks`);
 }
-async function livePeer() {
+async function livePeer(mode) {
   const child = cp.spawn(exe, ['peer'], { stdio:['pipe','pipe','pipe'] });
   const sentChunks = [], originalWrite = child.stdin.write.bind(child.stdin);
   child.stdin.write = (chunk, ...args) => { sentChunks.push(Buffer.from(chunk)); return originalWrite(chunk, ...args); };
   let stderr = '';
   child.stderr.on('data', b => { stderr += b; });
   child.on('exit', code => { if (code !== 0) console.error(`Moon peer exit ${code}: ${stderr}`); });
+  const exited = new Promise(resolve => child.once('close', resolve));
   const socket = Duplex.from({ readable:child.stdout, writable:child.stdin });
   const container = rhea.create_container({ id:'rhea-oracle' });
-  let count = 0, received = 0, delivery, liveConnection;
-  const maybeClose = () => { if (count === 1 && received === 1) liveConnection.close(); };
+  let count = 0, received = 0, senderConfirmed = mode === 0, delivery, liveConnection;
+  let timer;
+  const maybeClose = () => {
+    if (count === 1 && received === 1 && senderConfirmed) liveConnection.close();
+  };
   const closed = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(Error(`live peer timed out: ${stderr}`)), 12000);
+    timer = setTimeout(() => reject(Error(`live peer timed out: ${stderr}`)), 12000);
+    child.once('error', reject);
     container.on('connection_error', context => reject(Error(JSON.stringify(context.connection.error))));
     container.on('disconnected', context => { if (context.error) reject(context.error); });
     container.on('sendable', context => {
       if (delivery) return;
       delivery = context.sender.send({ to:'jobs', application_properties:{ id:types.wrap_ulong(Buffer.from('ffffffffffffffff','hex')) }, body:message.data_section(Buffer.alloc(5000,0x31)) });
     });
-    container.on('accepted', context => { count++; assert.equal(context.delivery.id, delivery.id); maybeClose(); });
+    container.on('accepted', context => {
+      count++;
+      assert.equal(context.delivery.id, delivery.id);
+      assert.equal(Boolean(context.delivery.remote_settled), mode === 0);
+      if (mode === 1) context.delivery.update(true);
+      maybeClose();
+    });
+    container.on('settled', (context) => {
+      if (mode === 1 && context.receiver) {
+        assert.equal(Boolean(context.delivery.remote_settled), true);
+        senderConfirmed = true;
+        maybeClose();
+      }
+    });
     container.on('message', context => {
       received++;
       const data = Buffer.isBuffer(context.message.body) ? context.message.body : context.message.body.content;
@@ -132,25 +150,36 @@ async function livePeer() {
   try {
     const connection = liveConnection = container.connect({ reconnect:false, max_frame_size:512, idle_time_out:0,
       connect:(_port,_host,_options,connected) => { process.nextTick(connected); return socket; } });
-    connection.open_sender({ name:'oracle-task', target:{ address:'jobs' }, snd_settle_mode:2, rcv_settle_mode:0 });
-    connection.open_receiver({ name:'oracle-consume', source:{ address:'events' }, credit_window:4, rcv_settle_mode:0 });
+    connection.open_sender({ name:'oracle-task', target:{ address:'jobs' }, snd_settle_mode:2, rcv_settle_mode:mode });
+    connection.open_receiver({ name:'oracle-consume', source:{ address:'events' }, credit_window:4, rcv_settle_mode:mode });
     await closed;
     assert.equal(count,1);
     assert.equal(received,1);
     const wire = Buffer.concat(sentChunks);
     let pos = 8, transfers = 0;
+    let reportedOutcome = false, senderSettlement = false;
     while (pos < wire.length) {
       const size = wire.readUInt32BE(pos);
       const frame = frames.read_frame(wire.subarray(pos,pos+size));
       assert(frame);
-      if (frame.performative && frame.performative.constructor.descriptor.numeric === 0x14) transfers++;
+      const perf = frame.performative;
+      const code = perf?.constructor.descriptor.numeric;
+      if (code === 0x14) transfers++;
+      if (code === 0x15) {
+        if (perf.role && !perf.settled) reportedOutcome = true;
+        if (!perf.role && perf.settled) senderSettlement = true;
+      }
       pos += frame.size;
     }
     assert(transfers > 1, 'live oracle must actually fragment the delivery');
+    if (mode === 1) {
+      assert.ok(reportedOutcome, 'Rhea receiver must report an unsettled outcome');
+      assert.ok(senderSettlement, 'Rhea sender must send the final settlement');
+    }
     child.stdin.end();
-    const exitCode = await new Promise(resolve => child.on('exit',resolve));
+    const exitCode = await exited;
     assert.equal(exitCode,0,stderr);
-    console.log(`Live Rhea client over binary stdio: ${transfers} incoming transfer frames and a 5000-byte outgoing delivery, both accepted; close passed`);
-  } finally { child.kill(); }
+    console.log(`Live Rhea receiver settle mode ${mode} over binary stdio: ${transfers} incoming transfer frames and a 5000-byte outgoing delivery, both accepted; close passed`);
+  } finally { clearTimeout(timer); child.kill(); }
 }
-(async () => { try { codecs(); await livePeer(); } finally { fs.rmSync(temp,{recursive:true,force:true}); } })().catch(error => { console.error(error); process.exitCode=1; });
+(async () => { try { codecs(); await livePeer(0); await livePeer(1); } finally { fs.rmSync(temp,{recursive:true,force:true}); } })().catch(error => { console.error(error); process.exitCode=1; });

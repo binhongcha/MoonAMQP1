@@ -1,8 +1,18 @@
 ///|
+pub(all) enum ReceiverSettleMode {
+  First
+  Second
+} derive(Eq)
+
+///|
+pub extend ReceiverSettleMode with Eq::{equal, not_equal}
+
+///|
 priv struct PartialDelivery {
   id : UInt32
   tag : Bytes
   settled : Bool
+  receiver_mode : ReceiverSettleMode
   bytes : Array[Byte]
   mut fragments : Int32
 }
@@ -19,6 +29,10 @@ priv struct LinkState {
   mut delivery_count : UInt32
   mut credit : UInt32
   mut peer_max_message : UInt64
+  mut drain_mode : Bool
+  mut draining : Bool
+  mut drain_returned : UInt32
+  mut receiver_mode : ReceiverSettleMode
   mut settle_mode : Int32
   mut partial : PartialDelivery?
 }
@@ -41,6 +55,10 @@ fn link_state(
     delivery_count: 0U,
     credit: 0U,
     peer_max_message: 0UL,
+    drain_mode: false,
+    draining: false,
+    drain_returned: 0U,
+    receiver_mode: First,
     settle_mode: 2,
     partial: None,
   }
@@ -50,6 +68,7 @@ fn link_state(
 fn LinkState::attach(
   self : LinkState,
   perf : Performative,
+  responding~ : Bool = false,
 ) -> Unit raise AmqpError {
   if self.ready || self.closed {
     raise State("link already attached or closed")
@@ -57,9 +76,10 @@ fn LinkState::attach(
   if bool_field(perf, 2, false) != self.sender {
     raise Invalid("remote link role is not complementary", 0)
   }
-  match perf.field(4) {
-    Null | UByte(0) => ()
-    _ => raise Unsupported("receiver settle mode second")
+  let mode = if perf.field(4) is UByte(1) { Second } else { First }
+  // The receiver announces the actual receiver settlement mode.
+  if self.sender || !responding {
+    self.receiver_mode = mode
   }
   match perf.field(7) {
     Null => ()
@@ -109,7 +129,7 @@ fn LinkState::attach_fields(self : LinkState, limits : Limits) -> Array[Value] {
     UInt(self.local_handle),
     Boolean(!self.sender),
     UByte(self.settle_mode),
-    UByte(0),
+    UByte(if self.receiver_mode == Second { 1 } else { 0 }),
     source(self.address),
     target(self.address),
     Null,

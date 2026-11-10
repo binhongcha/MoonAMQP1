@@ -2,6 +2,7 @@
 
 - Original MoonBit protocol implementation based on the [OASIS AMQP 1.0 standard](https://www.oasis-open.org/standard/amqp/). Normative documents are referenced, not redistributed as source. No OASIS XML-to-code generator or copied protocol implementation is embedded.
 - [Rhea 3.0.5](https://github.com/amqp/rhea), Apache-2.0: independent development-only codec and live-client oracle. Locked by `package-lock.json`; not a MoonBit runtime dependency. All message contents and test vectors in this repository are original synthetic data. Rhea's transitive npm packages retain their own licenses in the installed development tree.
+- [Apache ActiveMQ Artemis 2.44.0](https://repo.maven.apache.org/maven2/org/apache/activemq/apache-artemis/2.44.0/), Apache-2.0: external TCP broker for the isolated integration test. The distribution is downloaded for development/CI and is outside the MoonBit runtime and published package.
 - [moonbitlang/async 0.22.5](https://github.com/moonbitlang/async), Apache-2.0: native CLI stdin/stdout and file IO. Runtime protocol library and portable examples have no async dependency imports.
 - `tools/windows` reuses the user's Apache-2.0 MoonORC/MoonEXR process-local compiler argv adapter. This auxiliary C/PowerShell code is excluded from effective MoonBit line totals. It does not replace the compiler implementation.
 

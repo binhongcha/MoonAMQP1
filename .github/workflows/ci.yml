@@ -66,10 +66,30 @@ jobs:
           moon run examples/scale --target native --release --deny-warn
           moon run examples/november --target native --deny-warn
           moon run examples/expansion --target native --deny-warn
+          moon run examples/review --target native --deny-warn
       - name: Independent Rhea codec and live peer
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           npm run interop
+      - uses: actions/setup-java@v4
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Apache Artemis bidirectional TCP interop
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="$(mktemp -d)"
+          cd "$dir"
+          curl --fail --silent --show-error --location --retry 3 --max-time 120 \
+            https://repo.maven.apache.org/maven2/org/apache/activemq/apache-artemis/2.44.0/apache-artemis-2.44.0-bin.zip \
+            --output artemis.zip
+          echo 'd711e6aacd43fd2e3e90993260b2ad391a2e13392d6100e8f6f304f8a7bee801  artemis.zip' | sha256sum --check
+          unzip -q artemis.zip
+          cd "$GITHUB_WORKSPACE"
+          python scripts/run_artemis_interop.py "$dir/apache-artemis-2.44.0"
       - name: Package and source hygiene
         run: |
           moon package

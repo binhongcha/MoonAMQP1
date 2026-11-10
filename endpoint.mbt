@@ -21,6 +21,9 @@ pub enum Event {
   Detached(UInt32)
   SessionEnded(Value)
   RemoteClosed(Value)
+  SessionEvent(Int32, Event)
+  DrainRequested(UInt32, UInt32)
+  DrainCompleted(UInt32, UInt32)
 }
 
 ///|
@@ -28,28 +31,21 @@ pub struct Endpoint {
   priv limits : Limits
   priv container : String
   priv channel : Int32
+  priv default_window : UInt32
+  priv max_sessions : Int32
+  priv mut primary : SessionState
+  priv sessions : Map[Int32, SessionState]
+  priv remote_sessions : Map[Int32, SessionState]
   priv stream : FrameStream
-  priv window : SessionWindow
-  priv links : Array[LinkState]
   priv outbound : Array[Bytes]
   priv events : Array[Event]
-  priv outgoing : Map[UInt32, UInt32]
-  priv incoming : Map[UInt32, UInt32]
-  priv outgoing_tags : Map[UInt32, Bytes]
-  priv incoming_tags : Map[UInt32, Bytes]
   priv mut queued_bytes : Int32
   priv mut partial_bytes : Int32
   priv mut event_bytes : Int32
   priv mut started : Bool
   priv mut remote_open : Bool
-  priv mut begin_sent : Bool
-  priv mut end_sent : Bool
-  priv mut remote_channel : Int32?
   priv mut peer_frame_max : Int32
-  priv mut peer_handle_max : UInt32
   priv mut peer_channel_max : Int32
-  priv mut next_delivery : UInt32
-  priv mut remote_next_delivery : UInt32?
   priv mut closed : Bool
   priv mut closing : Bool
   priv mut failed : Bool
@@ -60,10 +56,12 @@ pub fn Endpoint::new(
   container : String,
   channel~ : Int32 = 0,
   window~ : UInt32 = 1024U,
+  max_sessions~ : Int32 = 16,
   limits~ : Limits = Limits::default(),
 ) -> Endpoint raise AmqpError {
   limits.validate()
   require_range(channel, 0, 65535)
+  require_range(max_sessions, 1, 64)
   if text_bytes(container, maximum=4096).length() == 0 {
     raise Invalid("container-id length", 0)
   }
@@ -71,28 +69,21 @@ pub fn Endpoint::new(
     limits,
     container,
     channel,
+    default_window: window,
+    max_sessions,
+    primary: session_state(channel, window),
+    sessions: Map([]),
+    remote_sessions: Map([]),
     stream: FrameStream::new(limits~),
-    window: SessionWindow::new(window, window),
-    links: [],
     outbound: [],
     events: [],
-    outgoing: Map([]),
-    incoming: Map([]),
-    outgoing_tags: Map([]),
-    incoming_tags: Map([]),
     queued_bytes: 0,
     partial_bytes: 0,
     event_bytes: 0,
     started: false,
     remote_open: false,
-    begin_sent: false,
-    end_sent: false,
-    remote_channel: None,
     peer_frame_max: 512,
-    peer_handle_max: 4294967295U,
     peer_channel_max: 65535,
-    next_delivery: 0U,
-    remote_next_delivery: None,
     closed: false,
     closing: false,
     failed: false,
@@ -107,17 +98,25 @@ fn Endpoint::active(self : Endpoint) -> Unit raise AmqpError {
 }
 
 ///|
-fn Endpoint::session_active(self : Endpoint) -> Unit raise AmqpError {
+fn Endpoint::session_active(
+  self : Endpoint,
+  channel : Int32,
+) -> SessionState raise AmqpError {
   self.active()
   if self.closing {
     raise State("connection close pending")
   }
-  if self.end_sent {
+  let session = match self.sessions.get(channel) {
+    Some(session) => session
+    None => raise State("unknown local session channel")
+  }
+  if session.end_sent {
     raise State("session end pending or complete")
   }
-  if self.remote_channel is None {
+  if session.remote_channel is None {
     raise State("session not active")
   }
+  session
 }
 
 ///|
@@ -136,13 +135,14 @@ fn Endpoint::frame(
   code : Int32,
   fields : Array[Value],
   payload~ : Bytes = b"",
+  channel~ : Int32 = self.channel,
 ) -> Bytes raise AmqpError {
   encode_frame(
     {
       channel: if code == 0x10 || code == 0x18 {
         0
       } else {
-        self.channel
+        channel
       },
       performative: Some(Performative::new(code, fields, limits=self.limits)),
       payload,
@@ -213,8 +213,8 @@ pub fn Endpoint::is_closed(self : Endpoint) -> Bool {
 }
 
 ///|
-fn Endpoint::local_link(
-  self : Endpoint,
+fn SessionState::local_link(
+  self : SessionState,
   handle : UInt32,
 ) -> LinkState raise AmqpError {
   for link in self.links {
@@ -226,8 +226,8 @@ fn Endpoint::local_link(
 }
 
 ///|
-fn Endpoint::remote_link(
-  self : Endpoint,
+fn SessionState::remote_link(
+  self : SessionState,
   handle : UInt32,
 ) -> LinkState raise AmqpError {
   for link in self.links {
@@ -236,4 +236,60 @@ fn Endpoint::remote_link(
     }
   }
   raise Invalid("unknown remote link handle", 0)
+}
+
+///|
+priv struct SessionState {
+  channel : Int32
+  window : SessionWindow
+  links : Array[LinkState]
+  outgoing : Map[UInt32, UInt32]
+  incoming : Map[UInt32, UInt32]
+  outgoing_tags : Map[UInt32, Bytes]
+  incoming_tags : Map[UInt32, Bytes]
+  incoming_first : Set[UInt32]
+  reported : Map[UInt32, Outcome]
+  mut end_sent : Bool
+  mut remote_channel : Int32?
+  mut peer_handle_max : UInt32
+  mut next_delivery : UInt32
+  mut remote_next_delivery : UInt32?
+}
+
+///|
+fn session_state(
+  channel : Int32,
+  window : UInt32,
+) -> SessionState raise AmqpError {
+  {
+    channel,
+    window: SessionWindow::new(window, window),
+    links: [],
+    outgoing: Map([]),
+    incoming: Map([]),
+    outgoing_tags: Map([]),
+    incoming_tags: Map([]),
+    incoming_first: Set([]),
+    reported: Map([]),
+    end_sent: false,
+    remote_channel: None,
+    peer_handle_max: 4294967295U,
+    next_delivery: 0U,
+    remote_next_delivery: None,
+  }
+}
+
+///|
+fn Endpoint::session_event(
+  self : Endpoint,
+  session : SessionState,
+  event : Event,
+) -> Unit raise AmqpError {
+  self.event(
+    if session.channel == self.channel {
+      event
+    } else {
+      SessionEvent(session.channel, event)
+    },
+  )
 }
