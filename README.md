@@ -2,7 +2,7 @@
 
 MoonBit 原生 **AMQP 1.0 类型、消息、增量分帧与有界协议状态核心**。同一实现用于 native、JavaScript、Wasm、Wasm-GC。核心不绑定 Rhea、C 消息库或网络运行时；原生示例宿主使用 async 处理文件和标准输入输出。
 
-模块 `binhongcha/moonamqp1@0.2.0`。[GitHub](https://github.com/binhongcha/MoonAMQP1) · [Mooncakes](https://mooncakes.io/docs/binhongcha/moonamqp1)。
+模块 `binhongcha/moonamqp1@0.2.1`。[GitHub](https://github.com/binhongcha/MoonAMQP1) · [Mooncakes](https://mooncakes.io/docs/binhongcha/moonamqp1)。
 
 ## 生态定位与使用场景
 
@@ -45,7 +45,7 @@ git diff --exit-code
 在已有 MoonBit 工程中安装：
 
 ```sh
-moon add binhongcha/moonamqp1@0.2.0
+moon add binhongcha/moonamqp1@0.2.1
 ```
 
 使用方 `moon.pkg` 配置导入：
