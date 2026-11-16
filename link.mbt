@@ -24,6 +24,7 @@ priv struct LinkState {
   mut local_handle : UInt32
   mut pause_pending : Bool
   mut suspended : Bool
+  mut resume_pending : Bool
   mut remote_handle : UInt32?
   sender : Bool
   address : String
@@ -52,6 +53,7 @@ fn link_state(
     local_handle,
     pause_pending: false,
     suspended: false,
+    resume_pending: false,
     remote_handle: None,
     sender,
     address,
@@ -81,11 +83,6 @@ fn LinkState::attach(
   if bool_field(perf, 2, false) != self.sender {
     raise Invalid("remote link role is not complementary", 0)
   }
-  let mode = if perf.field(4) is UByte(1) { Second } else { First }
-  // The receiver announces the actual receiver settlement mode.
-  if self.sender || !responding {
-    self.receiver_mode = mode
-  }
   match perf.field(7) {
     Null => ()
     MapValue(entries) if entries.is_empty() => ()
@@ -109,6 +106,14 @@ fn LinkState::attach(
   } else {
     uint_field(perf, 9, 0U)
   }
+  if (self.suspended || self.resume_pending) && count != self.delivery_count {
+    raise Invalid("resumed quiescent link counter differs", 0)
+  }
+  // The receiver announces the actual receiver settlement mode.
+  if self.sender || !responding {
+    self.receiver_mode = if perf.field(4) is UByte(1) { Second } else { First }
+  }
+  self.resume_pending = false
   self.remote_handle = Some(uint_field(perf, 1, 0U))
   self.peer_max_message = peer_max
   self.settle_mode = mode

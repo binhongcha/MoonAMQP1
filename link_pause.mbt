@@ -94,6 +94,7 @@ pub fn Endpoint::resume_link(
   self.queue(self.frame(0x12, fields, channel~))
   link.local_handle = handle
   link.suspended = false
+  link.resume_pending = true
   handle
 }
 
@@ -105,11 +106,7 @@ fn Endpoint::accept_resumed(
   perf : Performative,
 ) -> LinkState raise AmqpError {
   let handle = session.resume_handle(None)
-  let previous = link.delivery_count
   link.attach(perf, responding=true)
-  if link.delivery_count != previous {
-    raise Invalid("resumed quiescent link counter differs", 0)
-  }
   link.local_handle = handle
   link.suspended = false
   let fields = link.attach_fields(self.limits)
