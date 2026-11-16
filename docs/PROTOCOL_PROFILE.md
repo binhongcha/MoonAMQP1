@@ -23,7 +23,9 @@ flowchart LR
 | Receiver Settle Mode Second | `attach(…, receiver_mode=Second)` 支持 Second。接收方先报告 terminal outcome 与 `settled=false`，继续保留记录。发送方回送 `settled=true`，接收方随后发出 `PeerSettled` 并释放记录。已预先结算的消息无需此握手。 | 默认为 First。需要对端配合。接收方接受 Second 链路上的 First transfer 覆盖，拒绝 First 链路上的 Second 覆盖。发送方按链路模式发送。结算事件表达协议状态，宿主负责写出已排队帧和维护业务幂等。 |
 | Link drain | `grant(handle, credit, drain=true)` 允许发起有限额度拉取。发送方收到 `DrainRequested` 后可交付已有消息，再调用 `complete_drain`。未用额度通过推进 link delivery-count 归还，不消耗 transfer 窗口或 delivery ID。接收方在该轮完成后收到 `DrainCompleted(handle, unused)`。 | 同一接收链路一次只有一轮 drain。该轮内可收到分片，归还额度的 Flow 可以与分片交错，完成事件等待组装结束。应用提供计时、取消策略及消息来源。另有 `Endpoint::drain()` 用于取出待写字节，线协议上不发送 drain Flow。 |
 
-连接共享字节、帧数和事件队列预算，链路与未确认数量按会话计。无序网络、SASL／TLS、非零 idle timeout、事务、恢复、非零 message-format、动态或持久 terminus 和 Broker 队列存储由当前实现范围排除。范围依据 [OASIS AMQP 1.0 Transport §2.5–2.8](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html)。
+本地增量使用 `receive_at`、`poll_idle`、`drain_at` 驱动非零空闲超时。`npm run interop` 的 Rhea 实时对端等待 1500 ms 后再双向交换分片消息，并断言收到 MoonBit 心跳。已结算链路在同一会话内交换空 unsettled map 后可以重挂。
+
+连接共享字节、帧数和事件队列预算，链路与未确认数量按会话计。无序网络、SASL／TLS、事务、未结算交付恢复、非零 message-format、动态或持久 terminus 和 Broker 队列存储由当前实现范围排除。范围依据 [OASIS AMQP 1.0 Transport §2.5–2.8](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html)。
 
 ## 新增的应用接口
 

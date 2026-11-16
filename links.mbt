@@ -21,7 +21,7 @@ pub fn Endpoint::attach(
     raise Invalid("link name", 0)
   }
   for link in session.links {
-    if link.name == name || link.local_handle == handle {
+    if link.name == name || (!link.suspended && link.local_handle == handle) {
       raise State("duplicate local link name or handle")
     }
   }
@@ -58,7 +58,11 @@ fn Endpoint::receive_attach(
     }
   }
   let link = match found {
+    Some(link) if link.suspended => self.accept_resumed(session, link, perf)
     Some(link) => {
+      if link.pause_pending {
+        raise State("detach confirmation is pending")
+      }
       link.attach(perf, responding=true)
       link
     }
@@ -126,7 +130,8 @@ fn Endpoint::receive_detach(
     None => raise Invalid("unknown detach handle", 0)
   }
   if !bool_field(perf, 1, false) {
-    raise Unsupported("link detach without close and resume")
+    self.receive_suspend(session, link)
+    return
   }
   self.check_drop_capacity(session, link)
   if !link.closed {
@@ -209,7 +214,9 @@ pub fn Endpoint::link_credit(
 fn SessionState::next_handle(self : SessionState) -> UInt32 {
   let occupied : Set[UInt32] = Set([])
   for link in self.links {
-    occupied.add(link.local_handle)
+    if !link.suspended {
+      occupied.add(link.local_handle)
+    }
   }
   let mut handle = 0U
   while occupied.contains(handle) {

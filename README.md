@@ -16,7 +16,7 @@ AMQP 1.0 的类型、described value、会话窗口、单向 link、credit 与 s
 
 ## 安装与运行
 
-安装[官方 MoonBit 工具链](https://docs.moonbitlang.com/en/latest/download-and-install.html)。本机验证 `moonc 0.10.16`，符合赛事最低要求；CI 固定 compiler/core 0.10.16+b1a0e846e；依赖版本见 `moon.mod`。
+安装[官方 MoonBit 工具链](https://docs.moonbitlang.com/en/latest/download-and-install.html)。本机验证 `moonc 0.10.20`，符合赛事最低要求；CI 固定 compiler/core 0.10.20+65efd5b93；依赖版本见 `moon.mod`。
 
 ```sh
 moon version --all
@@ -79,12 +79,12 @@ fn main raise {
 | 文本 | 严格 UTF-8、Unicode scalar、ASCII symbol，保留 BOM 和 ASCII NUL | 拒绝非法 UTF-8 与未配对 UTF-16 代理项，不静默替换 |
 | 帧 | AMQP1.0 header、9 类 transport performative、扩展头、空 heartbeat、任意 feed 分块 | SASL frame/type、TLS header、未知额外 performative 字段明确拒绝 |
 | 消息 | header、注解、properties、application-properties、data/sequence/value body、footer | 检查顺序、唯一性、互斥及字段域；未知 section 不静默跳过 |
-| 状态 | 一个 connection 内多个 session、多 link、独立 channel 和 handle 映射 | 最多 64 个本地会话，默认 16；暂不提供 session/link 恢复、动态/持久 terminus、过滤及能力协商 |
+| 状态 | 一个 connection 内多个 session、多 link、独立 channel 和 handle 映射 | 最多 64 个本地会话，默认 16；本地增量提供已结算链路挂起和重挂。跨 Session 恢复、动态/持久 terminus 暂不支持、过滤及能力协商 |
 | 收发 | link credit、session window、自动发送分片、接收组装/aborted、三种 sender settle mode、receiver First／Second、link drain | 暂不提供 resume、事务、非零 message-format、分片中改变 settlement |
 | 确认 | accepted、rejected（保留无 error 的拒绝）、released、modified 的两个布尔标志、范围 disposition | received/事务状态、modified 附加注解明确不支持；确认不等同业务 exactly-once |
 | 宿主 | bytes/commands → bytes/events；原生 CLI 文件及 stdio 示例 | 无内置 broker、TCP 客户端、SASL、TLS、持久 outbox、自动重连、定时器或自动重试 |
 
-首版终结点仅接受 idle-time-out 缺省或 0；定时器应由未来宿主集成实现。source/target 的非空高级字段会被明确拒绝，而不是假装完成过滤或 durability。typed value/message 层可独立处理状态核心尚不协商的内容。
+定时端点通过显式宿主时钟支持非零 idle-time-out。旧的 `receive` / `drain` 驱动方式适用于零超时。source/target 的非空高级字段会被明确拒绝，而不是假装完成过滤或 durability。typed value/message 层可独立处理状态核心尚不协商的内容。
 
 `Value::ArrayValue(code, descriptor, bodies)` 的 code 使用全宽基础类型，如 uint `0x70`、symbol `0xb3`、list `0xd0`；bodies 不重复包含公共 descriptor。读取接受 array8/32 及 compact/zero-width constructor，再规范化。通用 map 保留顺序，键按类型与规范化值检查重复；注解、fields、application-properties 另有各自键域限制。
 
@@ -145,3 +145,7 @@ CLI 拒绝覆盖已有输出。`peer` 使用二进制 stdin/stdout 承载 AMQP1.
 - 支持多 Session、Receiver Settle Mode Second 和 link drain。次要会话事件携带本地 channel，默认会话沿用原事件形状。
 - 新增批量结果确认 `Endpoint::acknowledge_range` 和会话流控快照 `Endpoint::session_diagnostics`。运行 `moon run examples/review --target native --deny-warn`。
 - 通过 Artemis 2.44.0 真实队列验证双向收发、分片、First 确认和两种 drain 场景，分别为有一条待交付消息和空队列。通过独立 Rhea 3.0.5 对端验证 Second。复现命令和用例边界见 [协议范围](docs/PROTOCOL_PROFILE.md)。
+
+## 空闲超时与已结算链路恢复 (Unreleased)
+
+使用 `Endpoint::new(idle_advertised_ms=...)` 声明接收间隔，并由宿主以同一单调毫秒时钟调用 `receive_at`、`poll_idle`、`drain_at`。完整入站帧更新接收时刻，部分帧不会延长超时。对端间隔到一半且无待写帧时排入心跳，本端接收静默达到声明间隔两倍时尝试发送带原因的 Close。`suspend_link` 和 `resume_link` 在同一存活 Session 内保留已结算链路身份和计数，交换空 unsettled map，经新 handle 重新挂接及发放额度。未结算交付对账和带 `resume=true` 重放仍待实现。

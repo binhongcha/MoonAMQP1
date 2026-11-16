@@ -1,11 +1,12 @@
 ///|
+#derive(Debug, Eq)
 pub(all) enum Outcome {
   Accepted
   Rejected(String, String?)
   RejectedWithoutError
   Released
   Modified(Bool, Bool)
-} derive(Debug, Eq)
+}
 
 ///|
 pub extend Outcome with @debug.Debug::{to_repr}

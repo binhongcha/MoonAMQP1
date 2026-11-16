@@ -103,13 +103,29 @@ pub fn Endpoint::receive(
   self : Endpoint,
   bytes : Bytes,
 ) -> Unit raise AmqpError {
+  if self.idle_advertised_ms != 0U || self.clock_ms is Some(_) {
+    raise State("timed connection requires receive_at")
+  }
+  self.receive_impl(bytes)
+}
+
+///|
+fn Endpoint::receive_impl(
+  self : Endpoint,
+  bytes : Bytes,
+) -> Unit raise AmqpError {
   self.active()
   errdefer self.fail_connection()
   let items = self.stream.feed(bytes)
   for item in items {
     match item {
       Header => if !self.started { self.start() }
-      AmqpFrame(frame) => self.receive_frame(frame)
+      AmqpFrame(frame) => {
+        self.receive_frame(frame)
+        if self.clock_ms is Some(now) {
+          self.last_rx_ms = now
+        }
+      }
     }
   }
 }
@@ -134,11 +150,11 @@ fn Endpoint::receive_frame(
     if frame.channel != 0 || self.remote_open {
       raise Invalid("duplicate or nonzero-channel open", 0)
     }
-    if !(perf.field(4) is Null) && uint_field(perf, 4, 0U) != 0U {
-      raise Unsupported(
-        "idle timeout requires host timer integration; request zero",
-      )
+    let idle = uint_field(perf, 4, 0U)
+    if idle != 0U && self.clock_ms is None {
+      raise Unsupported("nonzero peer idle timeout requires receive_at")
     }
+    self.peer_idle_ms = idle
     let announced = uint_field(perf, 2, 4294967295U)
     self.peer_frame_max = if announced.to_uint64() >
       self.limits.max_frame_bytes.to_uint64() {

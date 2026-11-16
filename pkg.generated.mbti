@@ -29,12 +29,13 @@ pub fn target(String) -> Value
 pub fn validate_protocol_header(Bytes) -> Unit raise AmqpError
 
 // Errors
+#derive(@debug.Debug)
 pub suberror AmqpError {
   Invalid(String, Int32)
   Unsupported(String)
   Limit(String)
   State(String)
-} derive(@debug.Debug)
+}
 pub fn AmqpError::to_repr(Self) -> @debug.Repr
 
 // Types and methods
@@ -58,6 +59,7 @@ pub fn Endpoint::complete_drain(Self, UInt32, channel? : Int32) -> Unit raise Am
 pub fn Endpoint::detach(Self, channel? : Int32, UInt32) -> Unit raise AmqpError
 pub fn Endpoint::diagnostics(Self) -> EndpointDiagnostic
 pub fn Endpoint::drain(Self) -> Bytes
+pub fn Endpoint::drain_at(Self, UInt64) -> Bytes raise AmqpError
 pub fn Endpoint::end_session(Self, channel? : Int32) -> Unit raise AmqpError
 pub fn Endpoint::events(Self) -> Array[Event]
 pub fn Endpoint::finish_input(Self) -> Unit raise AmqpError
@@ -66,15 +68,19 @@ pub fn Endpoint::heartbeat(Self) -> Unit raise AmqpError
 pub fn Endpoint::is_closed(Self) -> Bool
 pub fn Endpoint::is_failed(Self) -> Bool
 pub fn Endpoint::link_credit(Self, channel? : Int32, UInt32) -> UInt32 raise AmqpError
-pub fn Endpoint::new(String, channel? : Int32, window? : UInt32, max_sessions? : Int32, limits? : Limits) -> Self raise AmqpError
+pub fn Endpoint::new(String, channel? : Int32, window? : UInt32, max_sessions? : Int32, idle_advertised_ms? : UInt32, limits? : Limits) -> Self raise AmqpError
 pub fn Endpoint::pending(Self) -> (Int32, Int32)
 pub fn Endpoint::plan_send(Self, channel? : Int32, UInt32, Message, Bytes, settled? : Bool) -> SendPlan raise AmqpError
+pub fn Endpoint::poll_idle(Self, UInt64) -> IdleAction raise AmqpError
 pub fn Endpoint::receive(Self, Bytes) -> Unit raise AmqpError
+pub fn Endpoint::receive_at(Self, Bytes, UInt64) -> Unit raise AmqpError
 pub fn Endpoint::refresh_windows(Self, channel? : Int32, UInt32, UInt32) -> Unit raise AmqpError
+pub fn Endpoint::resume_link(Self, String, handle? : UInt32, channel? : Int32) -> UInt32 raise AmqpError
 pub fn Endpoint::send(Self, channel? : Int32, UInt32, Message, Bytes, settled? : Bool) -> UInt32 raise AmqpError
 pub fn Endpoint::session_diagnostics(Self) -> Array[SessionDiagnostic]
 pub fn Endpoint::session_positions(Self) -> (UInt32, UInt32)
 pub fn Endpoint::start(Self) -> Unit raise AmqpError
+pub fn Endpoint::suspend_link(Self, UInt32, channel? : Int32) -> Unit raise AmqpError
 
 pub(all) struct EndpointDiagnostic {
   closed : Bool
@@ -97,6 +103,7 @@ pub enum Event {
   UnsettledLost(UInt32, Bool)
   Aborted(UInt32, UInt32)
   Detached(UInt32)
+  LinkSuspended(String, UInt32)
   SessionEnded(Value)
   RemoteClosed(Value)
   SessionEvent(Int32, Event)
@@ -104,10 +111,11 @@ pub enum Event {
   DrainCompleted(UInt32, UInt32)
 }
 
+#derive(@debug.Debug)
 pub(all) struct ExpiryStatus {
   expired : Bool
   remaining_milliseconds : UInt64?
-} derive(@debug.Debug)
+}
 pub fn ExpiryStatus::to_repr(Self) -> @debug.Repr
 
 pub(all) struct Frame {
@@ -125,6 +133,17 @@ pub fn FrameStream::feed(Self, Bytes) -> Array[StreamItem] raise AmqpError
 pub fn FrameStream::finish(Self) -> Unit raise AmqpError
 pub fn FrameStream::new(expect_header? : Bool, limits? : Limits) -> Self raise AmqpError
 
+#derive(Eq, @debug.Debug)
+pub(all) enum IdleAction {
+  Idle
+  HeartbeatQueued
+  IdleCloseQueued
+}
+pub fn IdleAction::equal(Self, Self) -> Bool
+pub fn IdleAction::not_equal(Self, Self) -> Bool
+pub fn IdleAction::to_repr(Self) -> @debug.Repr
+
+#derive(Eq, @debug.Debug)
 pub(all) struct Limits {
   max_value_bytes : Int32
   max_frame_bytes : Int32
@@ -134,7 +153,7 @@ pub(all) struct Limits {
   max_links : Int32
   max_pending : Int32
   max_fragments : Int32
-} derive(Eq, @debug.Debug)
+}
 pub fn Limits::default() -> Self
 pub fn Limits::equal(Self, Self) -> Bool
 pub fn Limits::not_equal(Self, Self) -> Bool
@@ -164,13 +183,14 @@ pub fn Message::new(Array[Section], limits? : Limits) -> Self raise AmqpError
 pub fn Message::sections(Self) -> Array[Section]
 pub fn Message::with_application_property(Self, String, Value?, limits? : Limits) -> Self raise AmqpError
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Outcome {
   Accepted
   Rejected(String, String?)
   RejectedWithoutError
   Released
   Modified(Bool, Bool)
-} derive(Eq, @debug.Debug)
+}
 pub fn Outcome::equal(Self, Self) -> Bool
 pub fn Outcome::from_value(Value) -> Self raise AmqpError
 pub fn Outcome::not_equal(Self, Self) -> Bool
@@ -186,10 +206,11 @@ pub fn Performative::from_value(Value, limits? : Limits) -> Self raise AmqpError
 pub fn Performative::new(Int32, Array[Value], limits? : Limits) -> Self raise AmqpError
 pub fn Performative::value(Self) -> Value
 
+#derive(Eq)
 pub(all) enum ReceiverSettleMode {
   First
   Second
-} derive(Eq)
+}
 pub fn ReceiverSettleMode::equal(Self, Self) -> Bool
 pub fn ReceiverSettleMode::not_equal(Self, Self) -> Bool
 
@@ -198,11 +219,12 @@ pub(all) struct Section {
   body : Value
 }
 
+#derive(@debug.Debug)
 pub(all) struct SendPlan {
   frames : Int32
   wire_bytes : Int32
   link_credit : UInt32
-} derive(@debug.Debug)
+}
 pub fn SendPlan::to_repr(Self) -> @debug.Repr
 
 pub(all) struct SessionDiagnostic {
@@ -238,6 +260,7 @@ pub enum StreamItem {
   AmqpFrame(Frame)
 }
 
+#derive(@debug.Debug)
 pub(all) enum Value {
   Null
   Boolean(Bool)
@@ -264,7 +287,7 @@ pub(all) enum Value {
   MapValue(Array[(Value, Value)])
   ArrayValue(Int32, Value?, Array[Value])
   Described(Value, Value)
-} derive(@debug.Debug)
+}
 pub fn Value::as_text(Self) -> String raise AmqpError
 pub fn Value::as_uint(Self) -> UInt32 raise AmqpError
 pub fn Value::to_repr(Self) -> @debug.Repr

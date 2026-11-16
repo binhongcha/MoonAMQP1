@@ -98,11 +98,13 @@ function codecs() {
   assert.equal(frameCount,5);
   console.log(`Rhea 3.0.5: ${vectors.length} typed values, message sections and frame streams passed bidirectional checks`);
 }
-async function livePeer(mode) {
-  const child = cp.spawn(exe, ['peer'], { stdio:['pipe','pipe','pipe'] });
+async function livePeer(mode, timed = false) {
+  const child = cp.spawn(exe, [timed ? 'peer-idle' : 'peer'], { stdio:['pipe','pipe','pipe'] });
   const sentChunks = [], originalWrite = child.stdin.write.bind(child.stdin);
   child.stdin.write = (chunk, ...args) => { sentChunks.push(Buffer.from(chunk)); return originalWrite(chunk, ...args); };
   let stderr = '';
+  const fromMoon = [];
+  child.stdout.on('data', b => fromMoon.push(b));
   child.stderr.on('data', b => { stderr += b; });
   child.on('exit', code => { if (code !== 0) console.error(`Moon peer exit ${code}: ${stderr}`); });
   const exited = new Promise(resolve => child.once('close', resolve));
@@ -148,10 +150,15 @@ async function livePeer(mode) {
     container.on('connection_close', () => { clearTimeout(timer); resolve(); });
   });
   try {
-    const connection = liveConnection = container.connect({ reconnect:false, max_frame_size:512, idle_time_out:0,
+    const connection = liveConnection = container.connect({ reconnect:false, max_frame_size:512, idle_time_out: timed ? 500 : 0,
       connect:(_port,_host,_options,connected) => { process.nextTick(connected); return socket; } });
-    connection.open_sender({ name:'oracle-task', target:{ address:'jobs' }, snd_settle_mode:2, rcv_settle_mode:mode });
-    connection.open_receiver({ name:'oracle-consume', source:{ address:'events' }, credit_window:4, rcv_settle_mode:mode });
+    const openLinks = () => {
+      connection.open_sender({ name:'oracle-task', target:{ address:'jobs' }, snd_settle_mode:2, rcv_settle_mode:mode });
+      connection.open_receiver({ name:'oracle-consume', source:{ address:'events' }, credit_window:4, rcv_settle_mode:mode });
+    };
+    if (timed) {
+      connection.once('connection_open', () => setTimeout(openLinks, 1500));
+    } else openLinks();
     await closed;
     assert.equal(count,1);
     assert.equal(received,1);
@@ -179,7 +186,19 @@ async function livePeer(mode) {
     child.stdin.end();
     const exitCode = await exited;
     assert.equal(exitCode,0,stderr);
+    if (timed) {
+      const inbound = Buffer.concat(fromMoon);
+      let heartbeatCount = 0;
+      for (let p = 8; p + 8 <= inbound.length;) {
+        const size = inbound.readUInt32BE(p);
+        assert.ok(size >= 8);
+        if (size === 8) heartbeatCount++;
+        p += size;
+      }
+      assert.ok(heartbeatCount >= 2, `expected heartbeats across idle period, got ${heartbeatCount}`);
+      console.log(`Nonzero idle: ${heartbeatCount} MoonBit heartbeats and bidirectional delivery after 1500 ms`);
+    }
     console.log(`Live Rhea receiver settle mode ${mode} over binary stdio: ${transfers} incoming transfer frames and a 5000-byte outgoing delivery, both accepted; close passed`);
   } finally { clearTimeout(timer); child.kill(); }
 }
-(async () => { try { codecs(); await livePeer(0); await livePeer(1); } finally { fs.rmSync(temp,{recursive:true,force:true}); } })().catch(error => { console.error(error); process.exitCode=1; });
+(async () => { try { codecs(); await livePeer(0); await livePeer(1); await livePeer(0, true); } finally { fs.rmSync(temp,{recursive:true,force:true}); } })().catch(error => { console.error(error); process.exitCode=1; });

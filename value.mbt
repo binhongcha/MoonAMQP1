@@ -1,5 +1,6 @@
 ///|
 /// Exact wire domains; ULong/Long never travel through Double.
+#derive(Debug)
 pub(all) enum Value {
   Null
   Boolean(Bool)
@@ -26,7 +27,7 @@ pub(all) enum Value {
   MapValue(Array[(Value, Value)])
   ArrayValue(Int32, Value?, Array[Value])
   Described(Value, Value)
-} derive(Debug)
+}
 
 ///|
 pub extend Value with @debug.Debug::{to_repr}

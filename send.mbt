@@ -118,11 +118,12 @@ pub fn Endpoint::plan_send(
 }
 
 ///|
+#derive(Debug)
 pub(all) struct SendPlan {
   frames : Int32
   wire_bytes : Int32
   link_credit : UInt32
-} derive(Debug)
+}
 
 ///|
 pub extend SendPlan with @debug.Debug::{to_repr}

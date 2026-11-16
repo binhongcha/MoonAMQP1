@@ -1,8 +1,9 @@
 ///|
+#derive(Eq)
 pub(all) enum ReceiverSettleMode {
   First
   Second
-} derive(Eq)
+}
 
 ///|
 pub extend ReceiverSettleMode with Eq::{equal, not_equal}
@@ -20,7 +21,9 @@ priv struct PartialDelivery {
 ///|
 priv struct LinkState {
   name : String
-  local_handle : UInt32
+  mut local_handle : UInt32
+  mut pause_pending : Bool
+  mut suspended : Bool
   mut remote_handle : UInt32?
   sender : Bool
   address : String
@@ -47,6 +50,8 @@ fn link_state(
   {
     name,
     local_handle,
+    pause_pending: false,
+    suspended: false,
     remote_handle: None,
     sender,
     address,

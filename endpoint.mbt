@@ -19,6 +19,7 @@ pub enum Event {
   UnsettledLost(UInt32, Bool)
   Aborted(UInt32, UInt32)
   Detached(UInt32)
+  LinkSuspended(String, UInt32)
   SessionEnded(Value)
   RemoteClosed(Value)
   SessionEvent(Int32, Event)
@@ -44,6 +45,11 @@ pub struct Endpoint {
   priv mut event_bytes : Int32
   priv mut started : Bool
   priv mut remote_open : Bool
+  priv idle_advertised_ms : UInt32
+  priv mut peer_idle_ms : UInt32
+  priv mut clock_ms : UInt64?
+  priv mut last_rx_ms : UInt64
+  priv mut last_tx_ms : UInt64
   priv mut peer_frame_max : Int32
   priv mut peer_channel_max : Int32
   priv mut closed : Bool
@@ -57,6 +63,7 @@ pub fn Endpoint::new(
   channel~ : Int32 = 0,
   window~ : UInt32 = 1024U,
   max_sessions~ : Int32 = 16,
+  idle_advertised_ms~ : UInt32 = 0U,
   limits~ : Limits = Limits::default(),
 ) -> Endpoint raise AmqpError {
   limits.validate()
@@ -82,6 +89,11 @@ pub fn Endpoint::new(
     event_bytes: 0,
     started: false,
     remote_open: false,
+    idle_advertised_ms,
+    peer_idle_ms: 0U,
+    clock_ms: None,
+    last_rx_ms: 0UL,
+    last_tx_ms: 0UL,
     peer_frame_max: 512,
     peer_channel_max: 65535,
     closed: false,
@@ -176,6 +188,11 @@ pub fn Endpoint::start(self : Endpoint) -> Unit raise AmqpError {
       Null,
       UInt(self.limits.max_frame_bytes.reinterpret_as_uint()),
       UShort(65535),
+      if self.idle_advertised_ms == 0U {
+        Null
+      } else {
+        UInt(self.idle_advertised_ms)
+      },
     ])
   self.queue(bytes)
   self.started = true
@@ -218,7 +235,10 @@ fn SessionState::local_link(
   handle : UInt32,
 ) -> LinkState raise AmqpError {
   for link in self.links {
-    if link.local_handle == handle && !link.closed {
+    if link.local_handle == handle &&
+      !link.closed &&
+      !link.suspended &&
+      !link.pause_pending {
       return link
     }
   }

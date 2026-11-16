@@ -1,15 +1,17 @@
 ///|
+#derive(Debug)
 pub suberror AmqpError {
   Invalid(String, Int32)
   Unsupported(String)
   Limit(String)
   State(String)
-} derive(Debug)
+}
 
 ///|
 pub extend AmqpError with @debug.Debug::{to_repr}
 
 ///|
+#derive(Debug, Eq)
 pub(all) struct Limits {
   max_value_bytes : Int32
   max_frame_bytes : Int32
@@ -19,7 +21,7 @@ pub(all) struct Limits {
   max_links : Int32
   max_pending : Int32
   max_fragments : Int32
-} derive(Debug, Eq)
+}
 
 ///|
 pub extend Limits with @debug.Debug::{to_repr}

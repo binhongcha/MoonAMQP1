@@ -1,8 +1,9 @@
 ///|
+#derive(Debug)
 pub(all) struct ExpiryStatus {
   expired : Bool
   remaining_milliseconds : UInt64?
-} derive(Debug)
+}
 
 ///|
 pub extend ExpiryStatus with @debug.Debug::{to_repr}

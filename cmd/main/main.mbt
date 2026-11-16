@@ -1,21 +1,59 @@
 ///|
-async fn peer() -> Unit {
+async fn peer(timed~ : Bool = false) -> Unit {
+  let start = @clock.monotonic_clock_start()
+  let now = () => {
+    (@clock.monotonic_clock_end(start) / 1000.0)
+    .to_int64()
+    .reinterpret_as_uint64()
+  }
   let endpoint = @amqp.Endpoint::new(
     "moonamqp1-stdio",
     channel=7,
     window=8192U,
+    idle_advertised_ms=if timed { 500U } else { 0U },
     limits={ ..@amqp.Limits::default(), max_frame_bytes: 512, },
   )
+  @async.with_task_group(group => peer_loop(endpoint, timed, now, group))
+}
+
+///|
+async fn peer_loop(
+  endpoint : @amqp.Endpoint,
+  timed : Bool,
+  now : () -> UInt64,
+  group : @async.TaskGroup[Unit],
+) -> Unit {
   let sent : Map[UInt32, Bool] = Map([])
   // Binary stdin/stdout are an ordered host transport, with no SASL or TLS layer.
   while !endpoint.is_closed() {
-    let bytes = match @stdio.stdin.read_some(max_len=16384) {
-      Some(b) => b
-      None => break
+    let input = if timed {
+      // Timer wakes must not cancel a pipe read that already consumed bytes.
+      let read = group.spawn(() => @stdio.stdin.read_some(max_len=16384))
+      let mut input = read.try_wait()
+      while input is None {
+        @async.sleep(25)
+        input = read.try_wait()
+        if input is None {
+          ignore(endpoint.poll_idle(now()))
+          let output = endpoint.drain_at(now())
+          if !output.is_empty() {
+            @stdio.stdout.write(output)
+          }
+        }
+      }
+      input.unwrap()
+    } else {
+      @stdio.stdin.read_some(max_len=16384)
     }
+    guard input is Some(bytes) else { break }
     // Deliver a completed protocol item before applying host policy.
     for byte in bytes {
-      endpoint.receive(Bytes::from_array([byte]))
+      let part = Bytes::from_array([byte])
+      if timed {
+        endpoint.receive_at(part, now())
+      } else {
+        endpoint.receive(part)
+      }
       for event in endpoint.events() {
         match event {
           LinkReady(handle, _, false) => endpoint.grant(handle, 32U)
@@ -38,7 +76,11 @@ async fn peer() -> Unit {
           _ => ()
         }
       }
-      let output = endpoint.drain()
+      let output = if timed {
+        endpoint.drain_at(now())
+      } else {
+        endpoint.drain()
+      }
       if !output.is_empty() {
         @stdio.stdout.write(output)
       }
@@ -54,8 +96,8 @@ async fn run() -> Unit {
     broker(args[2], args[3], args[4])
     return
   }
-  if args.length() == 2 && args[1] == "peer" {
-    peer()
+  if args.length() == 2 && (args[1] == "peer" || args[1] == "peer-idle") {
+    peer(timed=args[1] == "peer-idle")
     return
   }
   if args.length() != 4 {

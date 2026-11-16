@@ -1,6 +1,7 @@
 import {
   "binhongcha/moonamqp1" @amqp,
   "moonbitlang/core/env",
+  "moonbitlang/core/bench" @clock,
   "moonbitlang/async",
   "moonbitlang/async/fs",
   "moonbitlang/async/stdio",
