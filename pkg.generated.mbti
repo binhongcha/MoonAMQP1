@@ -65,6 +65,7 @@ pub fn Endpoint::events(Self) -> Array[Event]
 pub fn Endpoint::finish_input(Self) -> Unit raise AmqpError
 pub fn Endpoint::grant(Self, channel? : Int32, UInt32, UInt32, drain? : Bool) -> Unit raise AmqpError
 pub fn Endpoint::heartbeat(Self) -> Unit raise AmqpError
+pub fn Endpoint::idle_delay_ms(Self, UInt64) -> UInt64? raise AmqpError
 pub fn Endpoint::is_closed(Self) -> Bool
 pub fn Endpoint::is_failed(Self) -> Bool
 pub fn Endpoint::link_credit(Self, channel? : Int32, UInt32) -> UInt32 raise AmqpError

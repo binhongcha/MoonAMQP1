@@ -50,6 +50,51 @@ pub fn Endpoint::drain_at(
 }
 
 ///|
+/// Milliseconds until the next actionable idle event. A queued outbound frame
+/// suppresses keepalive scheduling until the host drains it.
+pub fn Endpoint::idle_delay_ms(
+  self : Endpoint,
+  now_ms : UInt64,
+) -> UInt64? raise AmqpError {
+  if self.closed || self.failed || self.closing || !self.remote_open {
+    return None
+  }
+  guard self.clock_ms is Some(previous) else {
+    raise State("idle scheduling requires receive_at")
+  }
+  if now_ms < previous {
+    raise State("idle clock moved backwards")
+  }
+  let mut delay : UInt64? = None
+  if self.idle_advertised_ms != 0U {
+    delay = Some(
+      idle_remaining(
+        self.idle_advertised_ms.to_uint64() * 2UL,
+        now_ms - self.last_rx_ms,
+      ),
+    )
+  }
+  if self.peer_idle_ms != 0U && self.queued_bytes == 0 {
+    let tx = idle_remaining(
+      heartbeat_interval(self.peer_idle_ms),
+      now_ms - self.last_tx_ms,
+    )
+    delay = Some(delay.map(rx => rx.min(tx)).unwrap_or(tx))
+  }
+  delay
+}
+
+///|
+fn idle_remaining(interval : UInt64, elapsed : UInt64) -> UInt64 {
+  interval - interval.min(elapsed)
+}
+
+///|
+fn heartbeat_interval(advertised : UInt32) -> UInt64 {
+  (advertised.to_uint64() / 2UL).max(1UL)
+}
+
+///|
 /// The advertised receive interval is half the local failure threshold.
 /// Hosts call this periodically and write queued output as soon as possible.
 pub fn Endpoint::poll_idle(
@@ -82,7 +127,7 @@ pub fn Endpoint::poll_idle(
   let peer = self.peer_idle_ms.to_uint64()
   if peer != 0UL &&
     self.queued_bytes == 0 &&
-    now_ms - self.last_tx_ms >= (peer / 2UL).max(1UL) {
+    now_ms - self.last_tx_ms >= heartbeat_interval(self.peer_idle_ms) {
     self.heartbeat()
     HeartbeatQueued
   } else {
