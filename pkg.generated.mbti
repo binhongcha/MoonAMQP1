@@ -60,11 +60,13 @@ pub fn Endpoint::detach(Self, channel? : Int32, UInt32) -> Unit raise AmqpError
 pub fn Endpoint::diagnostics(Self) -> EndpointDiagnostic
 pub fn Endpoint::drain(Self) -> Bytes
 pub fn Endpoint::drain_at(Self, UInt64) -> Bytes raise AmqpError
+pub fn Endpoint::drain_bounded_at(Self, Int32, UInt64) -> Bytes raise AmqpError
 pub fn Endpoint::end_session(Self, channel? : Int32) -> Unit raise AmqpError
 pub fn Endpoint::events(Self) -> Array[Event]
 pub fn Endpoint::finish_input(Self) -> Unit raise AmqpError
 pub fn Endpoint::grant(Self, channel? : Int32, UInt32, UInt32, drain? : Bool) -> Unit raise AmqpError
 pub fn Endpoint::heartbeat(Self) -> Unit raise AmqpError
+pub fn Endpoint::idle_deadlines(Self, UInt64) -> (UInt64?, UInt64?) raise AmqpError
 pub fn Endpoint::idle_delay_ms(Self, UInt64) -> UInt64? raise AmqpError
 pub fn Endpoint::is_closed(Self) -> Bool
 pub fn Endpoint::is_failed(Self) -> Bool
@@ -82,6 +84,8 @@ pub fn Endpoint::session_diagnostics(Self) -> Array[SessionDiagnostic]
 pub fn Endpoint::session_positions(Self) -> (UInt32, UInt32)
 pub fn Endpoint::start(Self) -> Unit raise AmqpError
 pub fn Endpoint::suspend_link(Self, UInt32, channel? : Int32) -> Unit raise AmqpError
+pub fn Endpoint::suspend_readiness(Self, UInt32, channel? : Int32) -> SuspendReadiness raise AmqpError
+pub fn Endpoint::suspended_links(Self, channel? : Int32) -> Array[SuspendedLink] raise AmqpError
 
 pub(all) struct EndpointDiagnostic {
   closed : Bool
@@ -260,6 +264,28 @@ pub enum StreamItem {
   Header
   AmqpFrame(Frame)
 }
+
+#derive(Eq, @debug.Debug)
+pub(all) enum SuspendReadiness {
+  SuspendReady
+  LinkNotReady
+  ReceiverHasCredit
+  DeliveryInProgress
+}
+pub fn SuspendReadiness::equal(Self, Self) -> Bool
+pub fn SuspendReadiness::not_equal(Self, Self) -> Bool
+pub fn SuspendReadiness::to_repr(Self) -> @debug.Repr
+
+#derive(Eq, @debug.Debug)
+pub(all) struct SuspendedLink {
+  name : String
+  address : String
+  sender : Bool
+  delivery_count : UInt32
+}
+pub fn SuspendedLink::equal(Self, Self) -> Bool
+pub fn SuspendedLink::not_equal(Self, Self) -> Bool
+pub fn SuspendedLink::to_repr(Self) -> @debug.Repr
 
 #derive(@debug.Debug)
 pub(all) enum Value {

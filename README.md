@@ -149,3 +149,9 @@ CLI 拒绝覆盖已有输出。`peer` 使用二进制 stdin/stdout 承载 AMQP1.
 ## 空闲超时与已结算链路恢复 (Unreleased)
 
 使用 `Endpoint::new(idle_advertised_ms=...)` 声明接收间隔，并由宿主以同一单调毫秒时钟调用 `receive_at`、`poll_idle`、`drain_at`。完整入站帧更新接收时刻，部分帧不会延长超时。对端间隔到一半且无待写帧时排入心跳，本端接收静默达到声明间隔两倍时尝试发送带原因的 Close。`suspend_link` 和 `resume_link` 在同一存活 Session 内保留已结算链路身份和计数，交换空 unsettled map，经新 handle 重新挂接及发放额度。未结算交付对账和带 `resume=true` 重放仍待实现。
+
+## November additions
+
+Use `idle_deadlines` to schedule peer heartbeats and local receive timeouts separately. When the output transport has a packet budget, `drain_bounded_at` returns a prefix of the ordered queue and updates the transmit clock only when it returns bytes. The initial protocol header and Open can occupy one queued packet. A smaller transport buffer may require a larger drain budget or subsequent transport-level framing.
+
+Use `suspend_readiness` before issuing Detach and `suspended_links` after the peer acknowledges it. The inventory retains the link name, direction, address and delivery count. The implementation resumes quiescent links on one live session. Reconciliation of nonempty unsettled maps remains a separate protocol milestone.
