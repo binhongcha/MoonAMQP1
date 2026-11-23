@@ -31,7 +31,7 @@ fn terminus_address(
     Text(s) => Some(s)
     _ => raise Invalid("terminus address", 0)
   }
-  // The endpoint profile cannot honor durable/dynamic/resumable/filter termini.
+  // Persistent unsettled state and dynamic/filter nodes need distinct adapters.
   match field_at(items, 1) {
     Null | UInt(0U) => ()
     _ => raise Unsupported("durable terminus")

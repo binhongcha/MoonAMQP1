@@ -96,9 +96,9 @@ test "receiver second retains incoming records until sender confirmation" {
   assert_true(
     (Ok(b.acknowledge(1U, Released)) catch { e => Err(e) }) is Err(State(_)),
   )
-  assert_eq(b.outbound.length(), 1)
+  assert_eq(b.io.outbound.length(), 1)
   a.receive(b.drain())
-  assert_eq(a.outbound.length(), 1)
+  assert_eq(a.io.outbound.length(), 1)
   assert_eq(a.events().length(), 3)
   assert_eq(a.pending(), (0, 0))
   ignore(b.events())
@@ -122,15 +122,15 @@ test "acknowledgement range rejects unknown IDs and rolls back on a full output 
     (Ok(b.acknowledge_range(0U, 0x80000000U, Accepted)) catch { e => Err(e) })
     is Err(Invalid(_, _)),
   )
-  b.queued_bytes = b.limits.max_value_bytes
+  b.io.queued_bytes = b.limits.max_value_bytes
   assert_true(
     (Ok(b.acknowledge(0U, Accepted)) catch { e => Err(e) }) is Err(Limit(_)),
   )
   assert_eq(b.pending(), (0, 1))
-  b.queued_bytes = 0
+  b.io.queued_bytes = 0
   b.acknowledge(0U, Accepted)
   assert_eq(b.pending(), (0, 0))
-  assert_eq(b.outbound.length(), 1)
+  assert_eq(b.io.outbound.length(), 1)
 }
 
 ///|
@@ -171,7 +171,7 @@ test "receiver-first range acknowledgement emits one disposition across uint32 w
   ignore(a.send(sender, Message::data(b"last"), b"last"))
   b.receive(a.drain())
   b.acknowledge_range(4294967295U, 0U, Accepted)
-  assert_eq(b.outbound.length(), 1)
+  assert_eq(b.io.outbound.length(), 1)
   a.receive(b.drain())
   assert_eq(a.pending(), (0, 0))
   assert_eq(b.pending(), (0, 0))

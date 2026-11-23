@@ -111,6 +111,13 @@ fn Endpoint::receive_flow(
       if !link.ready {
         raise State("flow before attach")
       }
+      if perf.field(10) is MapValue(properties) &&
+        properties.any(entry => entry.0 is Symbol("txn-id")) {
+        self.end_link_with_error(
+          session, link, "amqp:not-implemented", "transactional acquisition",
+        )
+        return
+      }
       if link.sender {
         let count = uint_field(perf, 5, 0U)
         link.update_credit(count, uint_field(perf, 6, 0U))

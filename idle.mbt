@@ -56,7 +56,7 @@ pub fn Endpoint::idle_delay_ms(
   self : Endpoint,
   now_ms : UInt64,
 ) -> UInt64? raise AmqpError {
-  if self.closed || self.failed || self.closing || !self.remote_open {
+  if self.closed || self.failed || self.io.closing || !self.remote_open {
     return None
   }
   guard self.clock_ms is Some(previous) else {
@@ -74,7 +74,7 @@ pub fn Endpoint::idle_delay_ms(
       ),
     )
   }
-  if self.peer_idle_ms != 0U && self.queued_bytes == 0 {
+  if self.peer_idle_ms != 0U && self.io.queued_bytes == 0 {
     let tx = idle_remaining(
       heartbeat_interval(self.peer_idle_ms),
       now_ms - self.last_tx_ms,
@@ -101,7 +101,7 @@ pub fn Endpoint::poll_idle(
   self : Endpoint,
   now_ms : UInt64,
 ) -> IdleAction raise AmqpError {
-  if self.closed || self.failed || self.closing || !self.remote_open {
+  if self.closed || self.failed || self.io.closing || !self.remote_open {
     return Idle
   }
   if self.clock_ms is None {
@@ -121,12 +121,12 @@ pub fn Endpoint::poll_idle(
         ),
       ]),
     )
-    self.closing = true
+    self.io.closing = true
     return IdleCloseQueued
   }
   let peer = self.peer_idle_ms.to_uint64()
   if peer != 0UL &&
-    self.queued_bytes == 0 &&
+    self.io.queued_bytes == 0 &&
     now_ms - self.last_tx_ms >= heartbeat_interval(self.peer_idle_ms) {
     self.heartbeat()
     HeartbeatQueued

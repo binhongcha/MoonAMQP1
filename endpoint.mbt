@@ -20,6 +20,9 @@ pub enum Event {
   Aborted(UInt32, UInt32)
   Detached(UInt32)
   LinkSuspended(String, UInt32)
+  RecoverySettled(UInt32, Bytes)
+  DeliveryRebound(UInt32, UInt32, Bytes)
+  RecoveryStoreFull(String)
   SessionEnded(Value)
   RemoteClosed(Value)
   SessionEvent(Int32, Event)
@@ -38,13 +41,12 @@ pub struct Endpoint {
   priv sessions : Map[Int32, SessionState]
   priv remote_sessions : Map[Int32, SessionState]
   priv stream : FrameStream
-  priv outbound : Array[Bytes]
-  priv events : Array[Event]
-  priv mut queued_bytes : Int32
-  priv mut partial_bytes : Int32
-  priv mut event_bytes : Int32
+  priv io : EndpointBuffers
+  priv link_bindings : Map[(String, String, String, Bool), LinkBinding]
   priv mut started : Bool
   priv mut remote_open : Bool
+  priv mut remote_container : String?
+  priv recovery_store : RecoveryStore?
   priv idle_advertised_ms : UInt32
   priv mut peer_idle_ms : UInt32
   priv mut clock_ms : UInt64?
@@ -53,7 +55,6 @@ pub struct Endpoint {
   priv mut peer_frame_max : Int32
   priv mut peer_channel_max : Int32
   priv mut closed : Bool
-  priv mut closing : Bool
   priv mut failed : Bool
 }
 
@@ -64,6 +65,7 @@ pub fn Endpoint::new(
   window~ : UInt32 = 1024U,
   max_sessions~ : Int32 = 16,
   idle_advertised_ms~ : UInt32 = 0U,
+  recovery~ : RecoveryStore? = None,
   limits~ : Limits = Limits::default(),
 ) -> Endpoint raise AmqpError {
   limits.validate()
@@ -82,13 +84,23 @@ pub fn Endpoint::new(
     sessions: Map([]),
     remote_sessions: Map([]),
     stream: FrameStream::new(limits~),
-    outbound: [],
-    events: [],
-    queued_bytes: 0,
-    partial_bytes: 0,
-    event_bytes: 0,
+    io: {
+      limits,
+      channel,
+      outbound: [],
+      events: [],
+      queued_bytes: 0,
+      partial_bytes: 0,
+      event_bytes: 0,
+      closing: false,
+    },
+    link_bindings: recovery
+    .map(store => store.bindings)
+    .unwrap_or_else(() => Map([])),
     started: false,
     remote_open: false,
+    remote_container: None,
+    recovery_store: recovery,
     idle_advertised_ms,
     peer_idle_ms: 0U,
     clock_ms: None,
@@ -97,7 +109,6 @@ pub fn Endpoint::new(
     peer_frame_max: 512,
     peer_channel_max: 65535,
     closed: false,
-    closing: false,
     failed: false,
   }
 }
@@ -115,7 +126,7 @@ fn Endpoint::session_active(
   channel : Int32,
 ) -> SessionState raise AmqpError {
   self.active()
-  if self.closing {
+  if self.io.closing {
     raise State("connection close pending")
   }
   let session = match self.sessions.get(channel) {
@@ -133,12 +144,8 @@ fn Endpoint::session_active(
 
 ///|
 fn Endpoint::queue(self : Endpoint, bytes : Bytes) -> Unit raise AmqpError {
-  if bytes.length() > self.limits.max_value_bytes - self.queued_bytes ||
-    self.outbound.length() >= self.limits.max_items {
-    raise Limit("outbound queue; drain before more commands")
-  }
-  self.outbound.push(bytes)
-  self.queued_bytes += bytes.length()
+  self.io.check_queue(bytes.length(), 1)
+  self.io.append(bytes)
 }
 
 ///|
@@ -169,10 +176,10 @@ fn Endpoint::frame(
 
 ///|
 fn Endpoint::event(self : Endpoint, event : Event) -> Unit raise AmqpError {
-  if self.events.length() >= self.limits.max_pending {
+  if self.io.events.length() >= self.limits.max_pending {
     raise Limit("event queue; drain events")
   }
-  self.events.push(event)
+  self.io.events.push(event)
 }
 
 ///|
@@ -200,22 +207,22 @@ pub fn Endpoint::start(self : Endpoint) -> Unit raise AmqpError {
 
 ///|
 pub fn Endpoint::drain(self : Endpoint) -> Bytes {
-  let output = wire_writer(self.queued_bytes)
-  for bytes in self.outbound {
+  let output = wire_writer(self.io.queued_bytes)
+  for bytes in self.io.outbound {
     output.put(bytes) catch {
       _ => abort("queue invariant")
     }
   }
-  self.outbound.clear()
-  self.queued_bytes = 0
+  self.io.outbound.clear()
+  self.io.queued_bytes = 0
   output.finish()
 }
 
 ///|
 pub fn Endpoint::events(self : Endpoint) -> Array[Event] {
-  let events = self.events.copy()
-  self.events.clear()
-  self.event_bytes = 0
+  let events = self.io.events.copy()
+  self.io.events.clear()
+  self.io.event_bytes = 0
   events
 }
 
@@ -267,6 +274,8 @@ priv struct SessionState {
   incoming : Map[UInt32, UInt32]
   outgoing_tags : Map[UInt32, Bytes]
   incoming_tags : Map[UInt32, Bytes]
+  recovering_incoming : Map[UInt32, (LinkState, Bytes)]
+  recovering_outgoing : Map[UInt32, (LinkState, Bytes)]
   incoming_first : Set[UInt32]
   reported : Map[UInt32, Outcome]
   mut end_sent : Bool
@@ -289,6 +298,8 @@ fn session_state(
     incoming: Map([]),
     outgoing_tags: Map([]),
     incoming_tags: Map([]),
+    recovering_incoming: Map([]),
+    recovering_outgoing: Map([]),
     incoming_first: Set([]),
     reported: Map([]),
     end_sent: false,
@@ -305,11 +316,5 @@ fn Endpoint::session_event(
   session : SessionState,
   event : Event,
 ) -> Unit raise AmqpError {
-  self.event(
-    if session.channel == self.channel {
-      event
-    } else {
-      SessionEvent(session.channel, event)
-    },
-  )
+  self.io.session_event(session, event)
 }

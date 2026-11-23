@@ -87,8 +87,13 @@ pub fn SessionWindow::sent(
 }
 
 ///|
+fn SessionWindow::can_receive(self : SessionWindow) -> Bool {
+  self.established && self.incoming > 0U && self.peer_outgoing > 0U
+}
+
+///|
 pub fn SessionWindow::received(self : SessionWindow) -> Unit raise AmqpError {
-  if !self.established || self.incoming == 0U || self.peer_outgoing == 0U {
+  if !self.can_receive() {
     raise State("session receive window exhausted")
   }
   self.next_in += 1U

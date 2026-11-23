@@ -39,7 +39,7 @@ pub fn encode_frame(
       encode_value(perf.value(), limits~)
     }
     None => {
-      if frame.payload.length() != 0 || frame.channel != 0 {
+      if frame.payload.length() != 0 {
         raise Invalid("heartbeat frame", 0)
       }
       b""
@@ -86,9 +86,6 @@ pub fn decode_frame(
   }
   let extended_header = reader.take(offset - 8)
   let performative = if reader.pos == size {
-    if channel != 0 {
-      raise Invalid("heartbeat channel must be zero", 6)
-    }
     None
   } else {
     Some(Performative::from_value(read_value(reader, 0), limits~))

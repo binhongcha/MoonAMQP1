@@ -52,7 +52,7 @@ pub struct Endpoint {
 }
 pub fn Endpoint::acknowledge(Self, UInt32, Outcome, channel? : Int32) -> Unit raise AmqpError
 pub fn Endpoint::acknowledge_range(Self, UInt32, UInt32, Outcome, channel? : Int32) -> Unit raise AmqpError
-pub fn Endpoint::attach(Self, String, Bool, String, handle? : UInt32, receiver_mode? : ReceiverSettleMode, channel? : Int32) -> UInt32 raise AmqpError
+pub fn Endpoint::attach(Self, String, Bool, String, handle? : UInt32, receiver_mode? : ReceiverSettleMode, recoverable? : Bool, channel? : Int32) -> UInt32 raise AmqpError
 pub fn Endpoint::begin(Self, channel? : Int32) -> Unit raise AmqpError
 pub fn Endpoint::close(Self) -> Unit raise AmqpError
 pub fn Endpoint::complete_drain(Self, UInt32, channel? : Int32) -> Unit raise AmqpError
@@ -71,13 +71,16 @@ pub fn Endpoint::idle_delay_ms(Self, UInt64) -> UInt64? raise AmqpError
 pub fn Endpoint::is_closed(Self) -> Bool
 pub fn Endpoint::is_failed(Self) -> Bool
 pub fn Endpoint::link_credit(Self, channel? : Int32, UInt32) -> UInt32 raise AmqpError
-pub fn Endpoint::new(String, channel? : Int32, window? : UInt32, max_sessions? : Int32, idle_advertised_ms? : UInt32, limits? : Limits) -> Self raise AmqpError
+pub fn Endpoint::new(String, channel? : Int32, window? : UInt32, max_sessions? : Int32, idle_advertised_ms? : UInt32, recovery? : RecoveryStore?, limits? : Limits) -> Self raise AmqpError
 pub fn Endpoint::pending(Self) -> (Int32, Int32)
 pub fn Endpoint::plan_send(Self, channel? : Int32, UInt32, Message, Bytes, settled? : Bool) -> SendPlan raise AmqpError
 pub fn Endpoint::poll_idle(Self, UInt64) -> IdleAction raise AmqpError
 pub fn Endpoint::receive(Self, Bytes) -> Unit raise AmqpError
 pub fn Endpoint::receive_at(Self, Bytes, UInt64) -> Unit raise AmqpError
+pub fn Endpoint::recovery_status(Self, UInt32, channel? : Int32) -> RecoveryStatus raise AmqpError
 pub fn Endpoint::refresh_windows(Self, channel? : Int32, UInt32, UInt32) -> Unit raise AmqpError
+pub fn Endpoint::resumable_deliveries(Self, UInt32, channel? : Int32) -> Array[Bytes] raise AmqpError
+pub fn Endpoint::resume_delivery(Self, UInt32, Bytes, channel? : Int32) -> UInt32 raise AmqpError
 pub fn Endpoint::resume_link(Self, String, handle? : UInt32, channel? : Int32) -> UInt32 raise AmqpError
 pub fn Endpoint::send(Self, channel? : Int32, UInt32, Message, Bytes, settled? : Bool) -> UInt32 raise AmqpError
 pub fn Endpoint::session_diagnostics(Self) -> Array[SessionDiagnostic]
@@ -86,6 +89,9 @@ pub fn Endpoint::start(Self) -> Unit raise AmqpError
 pub fn Endpoint::suspend_link(Self, UInt32, channel? : Int32) -> Unit raise AmqpError
 pub fn Endpoint::suspend_readiness(Self, UInt32, channel? : Int32) -> SuspendReadiness raise AmqpError
 pub fn Endpoint::suspended_links(Self, channel? : Int32) -> Array[SuspendedLink] raise AmqpError
+pub fn Endpoint::take_unseen(Self, UInt32, Bytes, channel? : Int32) -> Message? raise AmqpError
+pub fn Endpoint::transport_lost(Self) -> Unit
+pub fn Endpoint::unseen_deliveries(Self, UInt32, channel? : Int32) -> Array[Bytes] raise AmqpError
 
 pub(all) struct EndpointDiagnostic {
   closed : Bool
@@ -109,6 +115,9 @@ pub enum Event {
   Aborted(UInt32, UInt32)
   Detached(UInt32)
   LinkSuspended(String, UInt32)
+  RecoverySettled(UInt32, Bytes)
+  DeliveryRebound(UInt32, UInt32, Bytes)
+  RecoveryStoreFull(String)
   SessionEnded(Value)
   RemoteClosed(Value)
   SessionEvent(Int32, Event)
@@ -195,12 +204,24 @@ pub(all) enum Outcome {
   RejectedWithoutError
   Released
   Modified(Bool, Bool)
+  ModifiedWithAnnotations(Bool, Bool, OutcomeAnnotations)
 }
 pub fn Outcome::equal(Self, Self) -> Bool
 pub fn Outcome::from_value(Value) -> Self raise AmqpError
 pub fn Outcome::not_equal(Self, Self) -> Bool
 pub fn Outcome::to_repr(Self) -> @debug.Repr
 pub fn Outcome::value(Self) -> Value
+
+#derive(@debug.Debug)
+pub struct OutcomeAnnotations {
+  // private fields
+}
+pub fn OutcomeAnnotations::equal(Self, Self) -> Bool
+pub fn OutcomeAnnotations::new(Array[(String, Value)]) -> Self raise AmqpError
+pub fn OutcomeAnnotations::not_equal(Self, Self) -> Bool
+pub fn OutcomeAnnotations::to_repr(Self) -> @debug.Repr
+pub fn OutcomeAnnotations::value(Self) -> Value
+pub impl Eq for OutcomeAnnotations
 
 pub struct Performative {
   // private fields
@@ -218,6 +239,23 @@ pub(all) enum ReceiverSettleMode {
 }
 pub fn ReceiverSettleMode::equal(Self, Self) -> Bool
 pub fn ReceiverSettleMode::not_equal(Self, Self) -> Bool
+
+#derive(Eq, @debug.Debug)
+pub(all) struct RecoveryStatus {
+  local_incomplete : Bool
+  peer_incomplete : Bool
+  retained : Int32
+}
+pub fn RecoveryStatus::equal(Self, Self) -> Bool
+pub fn RecoveryStatus::not_equal(Self, Self) -> Bool
+pub fn RecoveryStatus::to_repr(Self) -> @debug.Repr
+
+pub struct RecoveryStore {
+  // private fields
+}
+pub fn RecoveryStore::forget(Self, String, String, String, Bool) -> Bool
+pub fn RecoveryStore::new(max_links? : Int32, max_payload_bytes? : Int32) -> Self raise AmqpError
+pub fn RecoveryStore::retained_links(Self) -> Int32
 
 pub(all) struct Section {
   descriptor : Int32

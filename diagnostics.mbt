@@ -33,12 +33,12 @@ pub fn Endpoint::diagnostics(self : Endpoint) -> EndpointDiagnostic {
     failed: self.failed,
     session_ready: session.remote_channel is Some(_) &&
     !session.end_sent &&
-    !self.closing &&
+    !self.io.closing &&
     !self.closed &&
     !self.failed,
-    queued_bytes: self.queued_bytes,
-    partial_bytes: self.partial_bytes,
-    queued_events: self.events.length(),
+    queued_bytes: self.io.queued_bytes,
+    partial_bytes: self.io.partial_bytes,
+    queued_events: self.io.events.length(),
     links: session.link_diagnostics(),
   }
 }

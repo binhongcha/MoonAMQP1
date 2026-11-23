@@ -113,16 +113,10 @@ test "nontransfer payload unsupported fields and malformed field types are rejec
 }
 
 ///|
-test "wire failures latch endpoint state and reject all later commands" {
+test "unsupported protocol version replies with the supported header and closes" {
   let endpoint = Endpoint::new("e")
-  assert_true(
-    try {
-      endpoint.receive(b"AMQP\x03\x01\x00\x00")
-      false
-    } catch {
-      _ => true
-    },
-  )
+  endpoint.receive(b"AMQP\x00\x01\x01\x00")
+  assert_true(endpoint.is_closed())
   assert_true(endpoint.is_failed())
   assert_true(
     try {
@@ -132,11 +126,11 @@ test "wire failures latch endpoint state and reject all later commands" {
       _ => true
     },
   )
-  assert_eq(endpoint.drain(), b"")
+  assert_eq(endpoint.drain(), protocol_header())
 }
 
 ///|
-test "unknown channel handle and role do not enter valid receive states" {
+test "unknown channel fails connection and unknown handle ends only its session" {
   let (a, b) = connected_pair()
   let bad = encode_frame({
     channel: 999,
@@ -155,14 +149,23 @@ test "unknown channel handle and role do not enter valid receive states" {
   assert_true(a.is_failed())
   let (c, d) = connected_pair()
   let perf = Performative::new(0x14, [UInt(999U), UInt(0U), Binary(b"t")])
-  assert_true(
-    try {
-      c.receive(d.frame(0x14, perf.fields, payload=b""))
-      false
-    } catch {
-      _ => true
+  c.begin(channel=8)
+  d.receive(c.drain())
+  c.receive(d.drain())
+  c.receive(d.frame(0x14, perf.fields, payload=b""))
+  let result = single_wire_frame(c.drain()).performative.unwrap()
+  assert_eq(result.code, 0x17)
+  let error = described_list(result.field(0), 0x1dUL, "amqp:error:list")
+  assert_eq(
+    if error[0] is Symbol(condition) {
+      condition
+    } else {
+      ""
     },
+    "amqp:session:unattached-handle",
   )
+  assert_false(c.is_failed())
+  ignore(c.attach("other-session", true, "jobs", channel=8))
   ignore(b)
 }
 
@@ -177,15 +180,22 @@ test "remote sender cannot start a delivery without granted link credit" {
     [UInt(remote), UInt(0U), Binary(b"t"), UInt(0U)],
     payload=encode_message(Message::data(b"x")),
   )
-  assert_true(
-    try {
-      b.receive(bytes)
-      false
-    } catch {
-      _ => true
-    },
-  )
-  assert_true(b.is_failed())
+  b.receive(bytes)
+  let response = single_wire_frame(b.drain()).performative.unwrap()
+  assert_eq(response.code, 0x16)
+  let error = described_list(response.field(2), 0x1dUL, "amqp:error:list")
+  assert_true(error[0] is Symbol("amqp:link:transfer-limit-exceeded"))
+  assert_false(b.is_failed())
+  ignore(b.attach("another-link", true, "jobs"))
+
+  // Frames for the failed link before its Detach reply terminate only the session.
+  ignore(b.drain())
+  b.receive(bytes)
+  let ended = single_wire_frame(b.drain()).performative.unwrap()
+  assert_eq(ended.code, 0x17)
+  let error = described_list(ended.field(0), 0x1dUL, "amqp:error:list")
+  assert_true(error[0] is Symbol("amqp:session:errant-link"))
+  assert_false(b.is_failed())
 }
 
 ///|
@@ -206,7 +216,7 @@ test "aborted delivery releases fragment memory and emits no received message" {
     payload=b"incomplete",
   )
   b.receive(first)
-  assert_eq(b.partial_bytes, 10)
+  assert_eq(b.io.partial_bytes, 10)
   let abort_frame = peer_wire(a, 0x14, [
     UInt(handle),
     Null,
@@ -221,7 +231,7 @@ test "aborted delivery releases fragment memory and emits no received message" {
   ])
   b.receive(abort_frame)
   assert_true(b.events()[0] is Aborted(_, 0U))
-  assert_eq(b.partial_bytes, 0)
+  assert_eq(b.io.partial_bytes, 0)
   assert_eq(b.pending(), (0, 0))
 }
 
@@ -259,7 +269,7 @@ test "continuation identity mismatch rejects incomplete message and releases mem
       _ => true
     },
   )
-  assert_eq(b.partial_bytes, 0)
+  assert_eq(b.io.partial_bytes, 0)
 }
 
 ///|
@@ -318,29 +328,24 @@ test "fragment count budget stops many zero-length continuations" {
 }
 
 ///|
-test "unsupported resume and transactions fail explicitly" {
+test "unknown resumed tags are ignored; unsupported transaction state stays explicit" {
   let (a, b) = connected_pair()
   let (handle, _) = ready_sender(a, b, "resume")
-  assert_true(
-    try {
-      b.receive(
-        peer_wire(a, 0x14, [
-          UInt(handle),
-          UInt(0U),
-          Binary(b"t"),
-          UInt(0U),
-          Null,
-          Null,
-          Null,
-          Null,
-          Boolean(true),
-        ]),
-      )
-      false
-    } catch {
-      _ => true
-    },
+  b.receive(
+    peer_wire(a, 0x14, [
+      UInt(handle),
+      UInt(0U),
+      Binary(b"t"),
+      UInt(0U),
+      Null,
+      Null,
+      Null,
+      Null,
+      Boolean(true),
+    ]),
   )
+  assert_false(b.events().any(event => event is Received(_)))
+  assert_eq(b.pending(), (0, 0))
   assert_true(
     try {
       ignore(Outcome::from_value(Described(ULong(0x33UL), List([]))))
@@ -461,4 +466,62 @@ test "wrapped delivery IDs cannot alias an old pending delivery even if pre-sett
     },
   )
   assert_true(b.is_failed())
+}
+
+///|
+test "the receive window is checked before accepting a Transfer on a credited link" {
+  let (a, b) = connected_pair()
+  let (sender, _) = ready_sender(a, b, "window")
+  b.primary.window.refresh(0U, 1U)
+  b.receive(
+    peer_wire(
+      a,
+      0x14,
+      [UInt(sender), UInt(0U), Binary(b"t"), UInt(0U)],
+      payload=encode_message(Message::data(b"job")),
+    ),
+  )
+  let response = single_wire_frame(b.drain()).performative.unwrap()
+  assert_eq(response.code, 0x17)
+  let error = described_list(response.field(0), 0x1dUL, "amqp:error:list")
+  assert_true(error[0] is Symbol("amqp:session:window-violation"))
+  assert_false(b.is_failed())
+  assert_eq(b.pending(), (0, 0))
+}
+
+///|
+test "oversized fragmented delivery Detaches and late disposition ends only its session" {
+  let (a, b) = connected_pair()
+  let (sender, _) = ready_sender(a, b, "message-size")
+  let capacity = b.limits.max_message_bytes
+  let limits = { ..b.limits, max_message_bytes: 8, }
+  let b = { ..b, limits, }
+  assert_true(capacity > b.limits.max_message_bytes)
+  b.receive(
+    peer_wire(
+      a,
+      0x14,
+      [
+        UInt(sender),
+        UInt(0U),
+        Binary(b"t"),
+        UInt(0U),
+        Boolean(false),
+        Boolean(true),
+      ],
+      payload=b"12345",
+    ),
+  )
+  b.receive(peer_wire(a, 0x14, [UInt(sender)], payload=b"67890"))
+  let response = single_wire_frame(b.drain()).performative.unwrap()
+  assert_eq(response.code, 0x16)
+  let error = described_list(response.field(2), 0x1dUL, "amqp:error:list")
+  assert_true(error[0] is Symbol("amqp:link:message-size-exceeded"))
+  assert_eq(b.pending(), (0, 0))
+  b.receive(peer_wire(a, 0x15, [Boolean(false), UInt(0U), Null, Boolean(true)]))
+  let ended = single_wire_frame(b.drain()).performative.unwrap()
+  assert_eq(ended.code, 0x17)
+  let error = described_list(ended.field(0), 0x1dUL, "amqp:error:list")
+  assert_true(error[0] is Symbol("amqp:session:errant-link"))
+  assert_false(b.is_failed())
 }

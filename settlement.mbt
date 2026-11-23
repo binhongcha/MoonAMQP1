@@ -28,6 +28,10 @@ pub fn Endpoint::acknowledge_range(
     if !session.incoming.contains(id) || session.reported.contains(id) {
       raise State("acknowledgement requires known unreported deliveries")
     }
+    if session.recovering_incoming.get(id) is Some((link, tag)) &&
+      !link.records[tag].delivered {
+      raise State("cannot acknowledge an incomplete delivery")
+    }
     if session.incoming_first.contains(id) != settle {
       raise State("acknowledgement range mixes receiver settlement modes")
     }
@@ -46,12 +50,27 @@ pub fn Endpoint::acknowledge_range(
       session.forget_incoming(id)
     } else {
       session.reported[id] = outcome
+      if session.recovering_incoming.get(id) is Some((link, tag)) {
+        let record = link.records[tag]
+        record.state = outcome.value()
+        record.bytes = b""
+      }
     }
   }
 }
 
 ///|
-fn SessionState::forget_incoming(self : SessionState, id : UInt32) -> Unit {
+fn SessionState::forget_incoming(
+  self : SessionState,
+  id : UInt32,
+  keep~ : Bool = false,
+) -> Unit {
+  if self.recovering_incoming.get(id) is Some((link, tag)) {
+    if !keep {
+      link.records.remove(tag) |> ignore
+    }
+    self.recovering_incoming.remove(id) |> ignore
+  }
   self.incoming.remove(id) |> ignore
   self.incoming_tags.remove(id) |> ignore
   self.incoming_first.remove(id)
@@ -95,6 +114,16 @@ fn Endpoint::receive_disposition(
   let span = serial_distance(first, last)
   let settled = bool_field(perf, 3, false)
   let remote_receiver = bool_field(perf, 0, false)
+  if session.links.any(link => {
+      link.failed &&
+      link.sender == remote_receiver &&
+      link.failed_deliveries.any(id => id - first <= span)
+    }) {
+    self.end_with_error(
+      session, "amqp:session:errant-link", "disposition on a failed link",
+    )
+    return
+  }
   let pending = if remote_receiver {
     session.outgoing
   } else {
@@ -109,12 +138,16 @@ fn Endpoint::receive_disposition(
   if ids.is_empty() {
     return
   }
-  if ids.length() > self.limits.max_pending - self.events.length() {
+  if ids.length() > self.limits.max_pending - self.io.events.length() {
     raise Limit("settlement event capacity")
   }
   ids.sort_by((a, b) => (a - first).compare(b - first))
   let state = perf.field(4)
   if remote_receiver {
+    if !settled && (state is Null || received_fields(state) is Some(_)) {
+      // Keep the retained message until the receiver reaches a terminal state.
+      return
+    }
     let outcome = Outcome::from_value(state)
     if !settled {
       let second_handles : Set[UInt32] = Set([])
@@ -124,7 +157,11 @@ fn Endpoint::receive_disposition(
         }
       }
       for id in ids {
-        if !second_handles.contains(pending[id]) {
+        let is_second = match session.recovering_outgoing.get(id) {
+          Some((link, _)) => link.receiver_mode == Second
+          None => second_handles.contains(pending[id])
+        }
+        if !is_second {
           raise Invalid("unsettled outcome on receiver-first link", 0)
         }
       }
@@ -144,8 +181,7 @@ fn Endpoint::receive_disposition(
       self.queue(self.disposition_frame(session, false, start, end, true, Null))
     }
     for id in ids {
-      session.outgoing.remove(id) |> ignore
-      session.outgoing_tags.remove(id) |> ignore
+      session.forget_outgoing(id)
       self.session_event(session, Settled(id, outcome))
     }
   } else {
@@ -170,4 +206,20 @@ fn Endpoint::receive_disposition(
       self.session_event(session, PeerSettled(id))
     }
   }
+}
+
+///|
+fn SessionState::forget_outgoing(
+  self : SessionState,
+  id : UInt32,
+  keep~ : Bool = false,
+) -> Unit {
+  if self.recovering_outgoing.get(id) is Some((link, tag)) {
+    if !keep {
+      link.records.remove(tag) |> ignore
+    }
+    self.recovering_outgoing.remove(id) |> ignore
+  }
+  self.outgoing.remove(id) |> ignore
+  self.outgoing_tags.remove(id) |> ignore
 }

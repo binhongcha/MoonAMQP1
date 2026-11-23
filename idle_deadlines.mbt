@@ -4,7 +4,7 @@ pub fn Endpoint::idle_deadlines(
   self : Endpoint,
   now_ms : UInt64,
 ) -> (UInt64?, UInt64?) raise AmqpError {
-  if self.closed || self.failed || self.closing || !self.remote_open {
+  if self.closed || self.failed || self.io.closing || !self.remote_open {
     return (None, None)
   }
   guard self.clock_ms is Some(previous) else {
@@ -23,7 +23,7 @@ pub fn Endpoint::idle_deadlines(
       ),
     )
   }
-  let tx = if self.peer_idle_ms == 0U || self.queued_bytes != 0 {
+  let tx = if self.peer_idle_ms == 0U || self.io.queued_bytes != 0 {
     None
   } else {
     Some(

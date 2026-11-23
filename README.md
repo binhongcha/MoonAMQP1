@@ -79,9 +79,9 @@ fn main raise {
 | 文本 | 严格 UTF-8、Unicode scalar、ASCII symbol，保留 BOM 和 ASCII NUL | 拒绝非法 UTF-8 与未配对 UTF-16 代理项，不静默替换 |
 | 帧 | AMQP1.0 header、9 类 transport performative、扩展头、空 heartbeat、任意 feed 分块 | SASL frame/type、TLS header、未知额外 performative 字段明确拒绝 |
 | 消息 | header、注解、properties、application-properties、data/sequence/value body、footer | 检查顺序、唯一性、互斥及字段域；未知 section 不静默跳过 |
-| 状态 | 一个 connection 内多个 session、多 link、独立 channel 和 handle 映射 | 最多 64 个本地会话，默认 16；本地增量提供已结算链路挂起和重挂。跨 Session 恢复、动态/持久 terminus 暂不支持、过滤及能力协商 |
+| 状态 | 一个 connection 内多个 session、多 link、独立 channel 和 handle 映射 | 最多 64 个本地会话，默认 16；启用 recoverable 后支持在原会话或新会话重挂。动态节点、持久化终端及过滤扩展仍受限 |
 | 收发 | link credit、session window、自动发送分片、接收组装/aborted、三种 sender settle mode、receiver First／Second、link drain | 暂不提供 resume、事务、非零 message-format、分片中改变 settlement |
-| 确认 | accepted、rejected（保留无 error 的拒绝）、released、modified 的两个布尔标志、范围 disposition | received/事务状态、modified 附加注解明确不支持；确认不等同业务 exactly-once |
+| 确认 | accepted、rejected（保留无 error 的拒绝）、released、modified 的两个布尔标志、范围 disposition | Received 用于待结算续传。Modified 保留符号键与带类型注解，事务状态由选用的事务能力负责；确认不等同业务 exactly-once |
 | 宿主 | bytes/commands → bytes/events；原生 CLI 文件及 stdio 示例 | 无内置 broker、TCP 客户端、SASL、TLS、持久 outbox、自动重连、定时器或自动重试 |
 
 定时端点通过显式宿主时钟支持非零 idle-time-out。旧的 `receive` / `drain` 驱动方式适用于零超时。source/target 的非空高级字段会被明确拒绝，而不是假装完成过滤或 durability。typed value/message 层可独立处理状态核心尚不协商的内容。
@@ -100,7 +100,7 @@ fn main raise {
 
 每个 transfer **帧**消耗一次会话窗口，一条多帧 delivery 只消耗一次 link credit。`send` 在编码全部分片并通过队列/窗口预检后才更新状态；失败可以在补足窗口或清空队列后重试。首版不暂存“发送一半等待窗口”的命令，因此整条 delivery 的帧数必须能装入当前两个发送窗口。其 frame count 可从前后 `session_positions()` 差值观察。
 
-收到非法 wire 数据后，endpoint 永久失败，释放在途状态并清空待发送回复；不得拿同一实例继续解析。正常 detach 会产生 UnsettledLost，向宿主说明未确认结果不能再等待。连接/session 关闭使其所有未确认结果未知，宿主必须自行保留业务任务状态。核心对象不支持多个执行者并发修改，需串行驱动。
+未支持的协议头会回送本端版本并关闭连接。未挂接的 handle 使用 End 结束相应会话。其他连接级线格式错误使端点失败并释放连接状态。正常 detach 会产生 UnsettledLost，向宿主说明未确认结果不能再等待。启用恢复的链路可经 RecoveryStore 保留未结算协议状态。宿主负责保存业务任务状态。核心对象不支持多个执行者并发修改，需串行驱动。
 
 ## 资源与复杂度
 
@@ -146,9 +146,13 @@ CLI 拒绝覆盖已有输出。`peer` 使用二进制 stdin/stdout 承载 AMQP1.
 - 新增批量结果确认 `Endpoint::acknowledge_range` 和会话流控快照 `Endpoint::session_diagnostics`。运行 `moon run examples/review --target native --deny-warn`。
 - 通过 Artemis 2.44.0 真实队列验证双向收发、分片、First 确认和两种 drain 场景，分别为有一条待交付消息和空队列。通过独立 Rhea 3.0.5 对端验证 Second。复现命令和用例边界见 [协议范围](docs/PROTOCOL_PROFILE.md)。
 
-## 空闲超时与已结算链路恢复 (Unreleased)
+## 空闲超时与未结算链路恢复
 
-使用 `Endpoint::new(idle_advertised_ms=...)` 声明接收间隔，并由宿主以同一单调毫秒时钟调用 `receive_at`、`poll_idle`、`drain_at`。完整入站帧更新接收时刻，部分帧不会延长超时。对端间隔到一半且无待写帧时排入心跳，本端接收静默达到声明间隔两倍时尝试发送带原因的 Close。`suspend_link` 和 `resume_link` 在同一存活 Session 内保留已结算链路身份和计数，交换空 unsettled map，经新 handle 重新挂接及发放额度。未结算交付对账和带 `resume=true` 重放仍待实现。
+使用 `Endpoint::new(idle_advertised_ms=...)` 声明接收间隔，并由宿主以同一单调毫秒时钟调用 `receive_at`、`poll_idle`、`drain_at`。完整入站帧更新接收时刻，部分帧不会延长超时。对端间隔到一半且无待写帧时排入心跳，本端接收静默达到声明间隔两倍时尝试发送带原因的 Close。`attach(..., recoverable=true)` 保留待结算交付。`suspend_link` / `resume_link` 在同一会话中重挂，`transport_lost` 与 `RecoveryStore` 支持跨连接交接。发送方通过 `resumable_deliveries` 和 `resume_delivery` 按对端状态推进，通过 `recovery_status` 判断是否需要再次重挂。运行 `npm run interop:recovery` 可复现带部分表、偏移续传和最终 Second 结算的线级对照。[恢复契约与标准边界](docs/PROTOCOL_PROFILE.md#未结算交付恢复)
+
+同一服务的多个连接可以共享 RecoveryStore。新连接挂接同一对容器、同一方向的同名链路时，旧链路收到 amqp:link:stolen，已保留的待结算记录交给新链路。宿主应在传输断开时调用 transport_lost，并让旧连接的写循环取走排队的 Detach。
+
+运行 npm run interop:recovery:tcp 可启动独立的本地 TCP 测试对端。它用 Rhea 编解码并驱动两个角色的重挂，检查部分待结算表、续传偏移、结算以及恢复后的普通交付。
 
 ## November additions
 

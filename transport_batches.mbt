@@ -9,14 +9,14 @@ pub fn Endpoint::drain_bounded_at(
   if max_bytes <= 0 {
     raise State("transport batch limit must be positive")
   }
-  if !self.outbound.is_empty() && self.outbound[0].length() > max_bytes {
+  if !self.io.outbound.is_empty() && self.io.outbound[0].length() > max_bytes {
     raise Limit("head packet exceeds transport batch limit")
   }
   self.observe_clock(now_ms)
   let mut count = 0
   let mut size = 0
   let output : Array[Byte] = []
-  for packet in self.outbound {
+  for packet in self.io.outbound {
     if packet.length() > max_bytes - size {
       break
     }
@@ -27,12 +27,12 @@ pub fn Endpoint::drain_bounded_at(
     count += 1
   }
   if count > 0 {
-    let remaining = self.outbound[count:].to_owned()
-    self.outbound.clear()
+    let remaining = self.io.outbound[count:].to_owned()
+    self.io.outbound.clear()
     for packet in remaining {
-      self.outbound.push(packet)
+      self.io.outbound.push(packet)
     }
-    self.queued_bytes -= size
+    self.io.queued_bytes -= size
     self.last_tx_ms = now_ms
   }
   Bytes::from_array(output)

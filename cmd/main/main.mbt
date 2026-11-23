@@ -100,6 +100,11 @@ async fn run() -> Unit {
     peer(timed=args[1] == "peer-idle")
     return
   }
+  if args.length() == 4 && args[1] == "probe-recovery" {
+    assert_true(args[3] == "send" || args[3] == "receive")
+    probe_recovery(args[2], args[3] == "send")
+    return
+  }
   if args.length() != 4 {
     raise Failure(
       "usage: moonamqp1 value|message|frames INPUT NEW_OUTPUT | peer | broker OUT_QUEUE IN_QUEUE TOKEN",

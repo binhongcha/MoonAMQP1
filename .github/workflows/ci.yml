@@ -71,6 +71,8 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           npm run interop
+          npm run interop:recovery
+          npm run interop:recovery:tcp
       - uses: actions/setup-java@v4
         if: runner.os == 'Linux'
         with:

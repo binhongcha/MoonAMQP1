@@ -16,6 +16,8 @@ priv struct PartialDelivery {
   receiver_mode : ReceiverSettleMode
   bytes : Array[Byte]
   mut fragments : Int32
+  mut skip : Int32
+  ignored : Bool
 }
 
 ///|
@@ -30,6 +32,8 @@ priv struct LinkState {
   address : String
   mut ready : Bool
   mut closed : Bool
+  mut failed : Bool
+  mut failed_deliveries : Array[UInt32]
   mut delivery_count : UInt32
   mut credit : UInt32
   mut peer_max_message : UInt64
@@ -39,6 +43,12 @@ priv struct LinkState {
   mut receiver_mode : ReceiverSettleMode
   mut settle_mode : Int32
   mut partial : PartialDelivery?
+  mut recoverable : Bool
+  records : Map[Bytes, RecoveryDelivery]
+  mut peer_records : Map[Bytes, Value]
+  mut recovery_cursor : Int32
+  mut sent_incomplete : Bool
+  mut peer_incomplete : Bool
 }
 
 ///|
@@ -59,6 +69,8 @@ fn link_state(
     address,
     ready: false,
     closed: false,
+    failed: false,
+    failed_deliveries: [],
     delivery_count: 0U,
     credit: 0U,
     peer_max_message: 0UL,
@@ -68,6 +80,12 @@ fn link_state(
     receiver_mode: First,
     settle_mode: 2,
     partial: None,
+    recoverable: false,
+    records: Map([]),
+    peer_records: Map([]),
+    recovery_cursor: 0,
+    sent_incomplete: false,
+    peer_incomplete: false,
   }
 }
 
@@ -83,14 +101,9 @@ fn LinkState::attach(
   if bool_field(perf, 2, false) != self.sender {
     raise Invalid("remote link role is not complementary", 0)
   }
-  match perf.field(7) {
-    Null => ()
-    MapValue(entries) if entries.is_empty() => ()
-    _ => raise Unsupported("unsettled link recovery")
-  }
-  if bool_field(perf, 8, false) {
-    raise Unsupported("incomplete unsettled map")
-  }
+  let peer_records = decode_unsettled(perf.field(7))
+  self.peer_records = peer_records
+  self.peer_incomplete = bool_field(perf, 8, false)
   let _ = terminus_address(perf.field(5), true)
   let _ = terminus_address(perf.field(6), false)
   let peer_max = match perf.field(10) {
@@ -106,7 +119,9 @@ fn LinkState::attach(
   } else {
     uint_field(perf, 9, 0U)
   }
-  if (self.suspended || self.resume_pending) && count != self.delivery_count {
+  if !self.recoverable &&
+    (self.suspended || self.resume_pending) &&
+    count != self.delivery_count {
     raise Invalid("resumed quiescent link counter differs", 0)
   }
   // The receiver announces the actual receiver settlement mode.
@@ -140,8 +155,16 @@ fn LinkState::attach_fields(self : LinkState, limits : Limits) -> Array[Value] {
     Boolean(!self.sender),
     UByte(self.settle_mode),
     UByte(if self.receiver_mode == Second { 1 } else { 0 }),
-    source(self.address),
-    target(self.address),
+    if self.recoverable {
+      persistent_terminus(self.address, true)
+    } else {
+      source(self.address)
+    },
+    if self.recoverable {
+      persistent_terminus(self.address, false)
+    } else {
+      target(self.address)
+    },
     Null,
     Boolean(false),
     if self.sender {

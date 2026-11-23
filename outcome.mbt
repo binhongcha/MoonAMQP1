@@ -6,6 +6,7 @@ pub(all) enum Outcome {
   RejectedWithoutError
   Released
   Modified(Bool, Bool)
+  ModifiedWithAnnotations(Bool, Bool, OutcomeAnnotations)
 }
 
 ///|
@@ -35,6 +36,11 @@ pub fn Outcome::value(self : Outcome) -> Value {
     Released => Described(ULong(0x26UL), List([]))
     Modified(failed, undeliverable) =>
       Described(ULong(0x27UL), List([Boolean(failed), Boolean(undeliverable)]))
+    ModifiedWithAnnotations(failed, undeliverable, annotations) =>
+      Described(
+        ULong(0x27UL),
+        List([Boolean(failed), Boolean(undeliverable), annotations.value()]),
+      )
   }
 }
 
@@ -118,13 +124,17 @@ pub fn Outcome::from_value(value : Value) -> Outcome raise AmqpError {
       if items.length() > 3 {
         raise Invalid("modified fields", 0)
       }
-      if !(field_at(items, 2) is Null) {
-        raise Unsupported("modified outcome message annotations")
+      let failed = optional_boolean(field_at(items, 0))
+      let undeliverable = optional_boolean(field_at(items, 1))
+      match field_at(items, 2) {
+        Null => Modified(failed, undeliverable)
+        annotations =>
+          ModifiedWithAnnotations(
+            failed,
+            undeliverable,
+            OutcomeAnnotations::from_value(annotations),
+          )
       }
-      Modified(
-        optional_boolean(field_at(items, 0)),
-        optional_boolean(field_at(items, 1)),
-      )
     }
     _ => raise Unsupported("non-terminal or transactional delivery state")
   }
@@ -144,4 +154,85 @@ test "outcomes preserve semantic acceptance rejection release and modification" 
       outcome,
     )
   }
+}
+
+///|
+/// Symbols and their typed values carried in the Modified outcome.
+#derive(Debug)
+pub struct OutcomeAnnotations {
+  priv items : Value
+  priv canonical : Bytes
+}
+
+///|
+pub extend OutcomeAnnotations with @debug.Debug::{to_repr}
+
+///|
+pub extend OutcomeAnnotations with Eq::{equal, not_equal}
+
+///|
+pub impl Eq for OutcomeAnnotations with fn equal(self, other) {
+  self.canonical == other.canonical
+}
+
+///|
+pub fn OutcomeAnnotations::new(
+  pairs : Array[(String, Value)],
+) -> OutcomeAnnotations raise AmqpError {
+  let sorted = pairs.copy()
+  sorted.sort_by((a, b) => a.0.compare(b.0))
+  let items = MapValue(sorted.map(pair => (Symbol(pair.0), pair.1)))
+  let canonical = encode_value(items)
+  { items: decode_value(canonical), canonical, }
+}
+
+///|
+pub fn OutcomeAnnotations::value(self : OutcomeAnnotations) -> Value {
+  clone_value(self.items)
+}
+
+///|
+fn OutcomeAnnotations::from_value(
+  value : Value,
+) -> OutcomeAnnotations raise AmqpError {
+  guard value is MapValue(entries) else {
+    raise Invalid("Modified message-annotations requires fields", 0)
+  }
+  let pairs : Array[(String, Value)] = []
+  for (key, item) in entries {
+    guard key is Symbol(name) else {
+      raise Invalid("Modified message-annotations keys must be symbols", 0)
+    }
+    pairs.push((name, item))
+  }
+  OutcomeAnnotations::new(pairs)
+}
+
+///|
+test "modified outcomes preserve typed annotations and compare unordered keys" {
+  let annotations = OutcomeAnnotations::new([
+    ("z", UInt(13U)),
+    ("a", Binary(b"route")),
+  ])
+  let equivalent = OutcomeAnnotations::new([
+    ("a", Binary(b"route")),
+    ("z", UInt(13U)),
+  ])
+  let state = ModifiedWithAnnotations(true, false, annotations)
+  assert_eq(state, ModifiedWithAnnotations(true, false, equivalent))
+  assert_eq(
+    Outcome::from_value(decode_value(encode_value(state.value()))),
+    state,
+  )
+  assert_true(
+    try {
+      ignore(
+        OutcomeAnnotations::new([("duplicate", Null), ("duplicate", Null)]),
+      )
+      false
+    } catch {
+      Invalid(_, _) => true
+      _ => false
+    },
+  )
 }

@@ -193,7 +193,7 @@ test "aggregate completed-message event bytes are bounded until host drains even
   let limited = { ..b, limits: { ..b.limits, max_value_bytes: 8192, }, }
   ignore(a.send(handle, message, b"one", settled=true))
   limited.receive(a.drain())
-  assert_true(limited.event_bytes > 5000)
+  assert_true(limited.io.event_bytes > 5000)
   ignore(a.send(handle, message, b"two", settled=true))
   assert_true(
     try {
@@ -204,8 +204,8 @@ test "aggregate completed-message event bytes are bounded until host drains even
     },
   )
   assert_true(limited.is_failed())
-  assert_eq(limited.partial_bytes, 0)
-  assert_eq(limited.event_bytes, 0)
+  assert_eq(limited.io.partial_bytes, 0)
+  assert_eq(limited.io.event_bytes, 0)
 }
 
 ///|

@@ -5,7 +5,7 @@ pub fn Endpoint::begin(
   channel~ : Int32 = self.channel,
 ) -> Unit raise AmqpError {
   self.active()
-  if !self.remote_open || self.closing {
+  if !self.remote_open || self.io.closing {
     raise State("session begin requires open connection")
   }
   let session = self.new_session(channel)
@@ -116,7 +116,19 @@ fn Endpoint::receive_impl(
 ) -> Unit raise AmqpError {
   self.active()
   errdefer self.fail_connection()
-  let items = self.stream.feed(bytes)
+  let waiting_for_header = self.stream.header_needed
+  let items = self.stream.feed(bytes) catch {
+    Unsupported(_) if waiting_for_header && self.stream.header_needed => {
+      let send_header = !self.started || self.io.queued_bytes != 0
+      self.fail_connection()
+      self.closed = true
+      if send_header {
+        self.queue(protocol_header())
+      }
+      return
+    }
+    error => raise error
+  }
   for item in items {
     match item {
       Header => if !self.started { self.start() }
@@ -139,10 +151,15 @@ fn Endpoint::receive_frame(
     raise State("frame after connection close")
   }
   let perf = match frame.performative {
-    None => return
+    None => {
+      if !self.remote_open {
+        raise State("empty frame before Open")
+      }
+      return
+    }
     Some(perf) => perf
   }
-  if self.closing && perf.code != 0x18 {
+  if self.io.closing && perf.code != 0x18 {
     // The peer may have sent this frame before it received our Close.
     return
   }
@@ -167,6 +184,7 @@ fn Endpoint::receive_frame(
       _ => 65535
     }
     self.remote_open = true
+    self.remote_container = Some(perf.field(0).as_text())
     self.event(RemoteOpen(perf.field(0).as_text()))
     return
   }
@@ -181,11 +199,11 @@ fn Endpoint::receive_frame(
     if frame.channel != 0 {
       raise Invalid("close channel", 0)
     }
-    if !self.closing {
+    if !self.io.closing {
       self.queue(self.frame(0x18, []))
     }
     self.closed = true
-    self.release_state()
+    self.release_state(preserve=true)
     self.event(RemoteClosed(perf.field(0)))
     return
   }
@@ -207,6 +225,41 @@ fn Endpoint::receive_session(
     // Frames already in flight before the peer processes End are discarded.
     return
   }
+  let remote_handle = match perf.code {
+    0x13 =>
+      match perf.field(4) {
+        UInt(handle) => Some(handle)
+        _ => None
+      }
+    0x14 | 0x16 => Some(uint_field(perf, 0, 0U))
+    _ => None
+  }
+  if remote_handle is Some(handle) {
+    match
+      session.links
+      .iter()
+      .find_first(link => link.remote_handle == Some(handle)) {
+      Some(link) if link.failed && perf.code != 0x16 => {
+        self.end_with_error(
+          session, "amqp:session:errant-link", "frame on a failed link",
+        )
+        return
+      }
+      None => {
+        self.end_with_error(
+          session, "amqp:session:unattached-handle", "unknown remote link handle",
+        )
+        return
+      }
+      _ => ()
+    }
+  }
+  if perf.code == 0x14 && !session.window.can_receive() {
+    self.end_with_error(
+      session, "amqp:session:window-violation", "transfer exceeded session receive window",
+    )
+    return
+  }
   match perf.code {
     0x17 => {
       if !session.end_sent {
@@ -215,7 +268,7 @@ fn Endpoint::receive_session(
       session.end_sent = true
       self.remote_sessions.remove(session.remote_channel.unwrap()) |> ignore
       self.sessions.remove(session.channel) |> ignore
-      self.release_session(session)
+      self.release_session(session, preserve=true)
       self.session_event(session, SessionEnded(perf.field(0)))
     }
     0x12 => self.receive_attach(session, perf)
@@ -229,7 +282,7 @@ fn Endpoint::receive_session(
 
 ///|
 pub fn Endpoint::finish_input(self : Endpoint) -> Unit raise AmqpError {
-  errdefer self.fail_connection()
+  errdefer self.transport_lost()
   self.stream.finish()
   if !self.closed {
     raise State("transport EOF without protocol close")
@@ -255,8 +308,8 @@ test "connection opens and maps distinct local and remote session channels" {
 fn Endpoint::fail_connection(self : Endpoint) -> Unit {
   self.failed = true
   self.release_state()
-  self.events.clear()
-  self.event_bytes = 0
-  self.outbound.clear()
-  self.queued_bytes = 0
+  self.io.events.clear()
+  self.io.event_bytes = 0
+  self.io.outbound.clear()
+  self.io.queued_bytes = 0
 }

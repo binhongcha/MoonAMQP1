@@ -25,8 +25,11 @@ pub fn Endpoint::suspend_readiness(
   if !link.ready {
     return LinkNotReady
   }
-  if !link.sender && link.credit != 0U {
+  if !link.recoverable && !link.sender && link.credit != 0U {
     return ReceiverHasCredit
+  }
+  if link.recoverable {
+    return SuspendReady
   }
   try {
     session.check_quiescent(link)

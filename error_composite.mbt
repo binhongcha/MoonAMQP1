@@ -32,7 +32,10 @@ test "error composites reject unrelated descriptors and preserve absent rejectio
     try {
       ignore(
         Outcome::from_value(
-          Described(ULong(0x27UL), List([Null, Null, MapValue([])])),
+          Described(
+            ULong(0x27UL),
+            List([Null, Null, MapValue([(Text("not-a-symbol"), Null)])]),
+          ),
         ),
       )
       false
