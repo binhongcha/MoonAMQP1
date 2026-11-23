@@ -476,6 +476,7 @@ test "interrupted replay retains the prefix of an already exposed unsettled deli
     tag: b"job",
     settled: false,
     receiver_mode: Second,
+    already_delivered: true,
     bytes: bytes.to_array(),
     fragments: 1,
     skip: 3,

@@ -159,3 +159,9 @@ CLI 拒绝覆盖已有输出。`peer` 使用二进制 stdin/stdout 承载 AMQP1.
 Use `idle_deadlines` to schedule peer heartbeats and local receive timeouts separately. When the output transport has a packet budget, `drain_bounded_at` returns a prefix of the ordered queue and updates the transmit clock only when it returns bytes. The initial protocol header and Open can occupy one queued packet. A smaller transport buffer may require a larger drain budget or subsequent transport-level framing.
 
 Use `suspend_readiness` before issuing Detach and `suspended_links` after the peer acknowledges it. The inventory retains the link name, direction, address and delivery count. The implementation resumes quiescent links on one live session. Reconciliation of nonempty unsettled maps remains a separate protocol milestone.
+
+## 本期交付复核
+
+Native、JS、Wasm 和 Wasm-GC 各通过 96 项回归。分片消息可以在继续发送时完成结算。已协商由发送方结算的链路，在最后一段才设置 `settled=true` 时仍可正常交付，接收方会清除待结算记录。Windows 的 `npm run interop:recovery` 使用项目工具链适配器，可与 Rhea 的常规互操作和双角色 TCP 恢复用例一起复现。
+
+已发布的 0.3.0 仍可作为恢复和同名链路接管的安装基线。当前复核覆盖这些链路能力和错误隔离。完整标准符合性及第三方生产 Broker 的恢复行为按 [协议说明](docs/PROTOCOL_PROFILE.md) 逐项跟踪。

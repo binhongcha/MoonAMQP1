@@ -12,8 +12,9 @@ pub extend ReceiverSettleMode with Eq::{equal, not_equal}
 priv struct PartialDelivery {
   id : UInt32
   tag : Bytes
-  settled : Bool
+  mut settled : Bool
   receiver_mode : ReceiverSettleMode
+  already_delivered : Bool
   bytes : Array[Byte]
   mut fragments : Int32
   mut skip : Int32

@@ -24,6 +24,20 @@ fn Endpoint::receive_transfer(
     )
     return
   }
+  let sender_settled = bool_field(perf, 4, false)
+  let settled = sender_settled ||
+    link.partial.map(partial => partial.settled).unwrap_or(false)
+  if !aborted &&
+    (
+      (link.settle_mode == 0 && sender_settled) ||
+      (link.settle_mode == 1 && !more && !settled)
+    ) {
+    session.window.received()
+    self.end_link_with_error(
+      session, link, "amqp:invalid-field", "transfer settlement disagrees with sender settle mode",
+    )
+    return
+  }
   let partial = match link.partial {
     Some(partial) => {
       match perf.field(1) {
@@ -36,10 +50,9 @@ fn Endpoint::receive_transfer(
         Binary(tag) if tag == partial.tag => ()
         _ => raise Invalid("continuation delivery-tag", 0)
       }
-      match perf.field(4) {
-        Null => ()
-        Boolean(n) if n == partial.settled => ()
-        _ => raise Unsupported("settlement change during fragmented delivery")
+      if settled && !partial.settled {
+        session.forget_incoming(partial.id)
+        partial.settled = true
       }
       if !partial.settled {
         match perf.field(6) {
@@ -75,7 +88,7 @@ fn Endpoint::receive_transfer(
           raise Invalid("non-sequential session delivery-id", 0)
         _ => ()
       }
-      let settled = bool_field(perf, 4, false)
+
       let record = if resuming { link.records.get(tag) } else { None }
       let mode = match perf.field(6) {
         Null => link.receiver_mode
@@ -86,12 +99,7 @@ fn Endpoint::receive_transfer(
       if session.incoming.contains(id) {
         raise Invalid("delivery-id wrap collides with unsettled delivery", 0)
       }
-      if (link.settle_mode == 0 && settled && !aborted) ||
-        (link.settle_mode == 1 && !settled && !aborted) {
-        raise Invalid(
-          "transfer settlement disagrees with sender settle mode", 0,
-        )
-      }
+
       if !settled &&
         (
           session.incoming.contains(id) ||
@@ -178,6 +186,7 @@ fn Endpoint::receive_transfer(
         tag,
         settled,
         receiver_mode,
+        already_delivered: record.map(entry => entry.delivered).unwrap_or(false),
         bytes: prefix.to_array(),
         fragments: 0,
         skip,
@@ -260,7 +269,7 @@ fn Endpoint::receive_transfer(
     let message = decode_message(wire, limits=self.limits)
     link.partial = None
     self.io.partial_bytes -= partial.bytes.length()
-    let mut publish = true
+
     if link.records.get(partial.tag) is Some(entry) {
       if partial.settled {
         link.records.remove(partial.tag) |> ignore
@@ -269,16 +278,18 @@ fn Endpoint::receive_transfer(
         entry.bytes = wire
         entry.state = prefix_state(wire, self.limits)
       }
-      if entry.delivered {
-        publish = false
-        self.session_event(
-          session,
-          DeliveryRebound(link.local_handle, partial.id, partial.tag),
-        )
-      }
       entry.delivered = true
     }
-    if publish {
+    if partial.already_delivered {
+      self.session_event(
+        session,
+        if partial.settled {
+          PeerSettled(partial.id)
+        } else {
+          DeliveryRebound(link.local_handle, partial.id, partial.tag)
+        },
+      )
+    } else {
       self.io.event_bytes += partial.bytes.length()
       self.session_event(
         session,

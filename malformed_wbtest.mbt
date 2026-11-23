@@ -525,3 +525,37 @@ test "oversized fragmented delivery Detaches and late disposition ends only its 
   assert_true(error[0] is Symbol("amqp:session:errant-link"))
   assert_false(b.is_failed())
 }
+
+///|
+test "a continuation can settle a fragmented delivery before it completes" {
+  for mode in [1, 2] {
+    let (sender, receiver) = connected_pair()
+    let (source, target) = ready_sender(sender, receiver, "late-settle")
+    receiver.primary.local_link(target).settle_mode = mode
+    let payload = encode_message(Message::data(b"fragmented settlement"))
+    receiver.receive(
+      peer_wire(
+        sender,
+        0x14,
+        [UInt(source), UInt(0U), Binary(b"task"), UInt(0U), Null, Boolean(true)],
+        payload=payload[:5].to_owned(),
+      ),
+    )
+    assert_eq(receiver.pending(), (0, 1))
+    receiver.receive(
+      peer_wire(
+        sender,
+        0x14,
+        [UInt(source), Null, Null, Null, Boolean(true)],
+        payload=payload[5:].to_owned(),
+      ),
+    )
+    let delivered = receiver.events().filter(event => event is Received(_))
+    guard delivered is [Received(delivery)] else {
+      fail("expected one complete delivery")
+    }
+    assert_true(delivery.settled)
+    assert_eq(delivery.message.data_bytes(), b"fragmented settlement")
+    assert_eq(receiver.pending(), (0, 0))
+  }
+}

@@ -8,9 +8,13 @@ const message = require('rhea/lib/message.js');
 const types = require('rhea/lib/types.js');
 
 const root = path.resolve(__dirname, '..');
-const result = spawnSync(process.env.MOON_EXE || 'moon', [
-  'run', 'examples/recovery', '--target', 'js', '--deny-warn',
-], { cwd: root, encoding: 'utf8', timeout: 30000 });
+const args = ['run', 'examples/recovery', '--target', 'js', '--deny-warn'];
+const useWindowsAdapter = process.platform === 'win32' && !process.env.MOON_EXE && !process.env.MOONC_OVERRIDE;
+const command = useWindowsAdapter ? 'pwsh' : process.env.MOON_EXE || 'moon';
+const commandArgs = useWindowsAdapter
+  ? ['-NoProfile', '-File', path.join(root, 'tools/windows/moon.ps1'), ...args]
+  : args;
+const result = spawnSync(command, commandArgs, { cwd: root, encoding: 'utf8', timeout: 30000 });
 assert.equal(result.status, 0, result.error || result.stderr);
 
 const trace = new Map();
